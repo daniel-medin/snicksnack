@@ -13,9 +13,15 @@ const remoteAudio = document.querySelector("#remoteAudio");
 const volumeSlider = document.querySelector("#volumeSlider");
 const volumeValue = document.querySelector("#volumeValue");
 const inputLevelBar = document.querySelector("#inputLevelBar");
+const inputLevelMeter = document.querySelector("#inputLevelMeter");
 const openRoomsList = document.querySelector("#openRoomsList");
 const openRoomsEmpty = document.querySelector("#openRoomsEmpty");
 const refreshRoomsButton = document.querySelector("#refreshRoomsButton");
+const lobbyPanel = document.querySelector("#lobbyPanel");
+const roomPanel = document.querySelector("#roomPanel");
+const appShell = document.querySelector("#appShell");
+const activeRoomTitle = document.querySelector("#activeRoomTitle");
+const lobbyMessageText = document.querySelector("#lobbyMessageText");
 
 const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
@@ -54,18 +60,36 @@ function setStatus(status, detail = "") {
 }
 
 function setMessage(message = "", isError = false) {
-  messageText.textContent = message;
-  messageText.classList.toggle("error", isError);
+  const target = roomPanel.hidden ? lobbyMessageText : messageText;
+  target.textContent = message;
+  target.classList.toggle("error", isError);
+
+  const otherTarget = target === messageText ? lobbyMessageText : messageText;
+  otherTarget.textContent = "";
+  otherTarget.classList.remove("error");
 }
 
 function setConnectedControls(isConnected) {
   joinButton.disabled = isConnected;
-  leaveButton.disabled = !isConnected;
   roomCodeInput.disabled = isConnected;
   roomPasswordInput.disabled = isConnected;
   microphoneSelect.disabled = isConnected;
   refreshDevicesButton.disabled = isConnected;
   testMicrophoneButton.disabled = isConnected;
+}
+
+function showLobby() {
+  appShell.classList.remove("in-room");
+  lobbyPanel.hidden = false;
+  roomPanel.hidden = true;
+  activeRoomTitle.textContent = "Rum";
+}
+
+function showRoom(roomCode) {
+  activeRoomTitle.textContent = `Rum ${roomCode}`;
+  appShell.classList.add("in-room");
+  lobbyPanel.hidden = true;
+  roomPanel.hidden = false;
 }
 
 function websocketUrl() {
@@ -201,7 +225,9 @@ function startInputMeter(stream) {
     }
 
     const rms = Math.sqrt(sum / meterData.length);
-    inputLevelBar.style.width = `${Math.min(100, Math.round(rms * 260))}%`;
+    const level = Math.min(100, Math.round(rms * 260));
+    inputLevelBar.style.width = `${level}%`;
+    inputLevelMeter.setAttribute("aria-valuenow", String(level));
     meterFrame = window.requestAnimationFrame(draw);
   };
 
@@ -219,6 +245,7 @@ function stopInputMeter() {
   analyser = null;
   meterData = null;
   inputLevelBar.style.width = "0%";
+  inputLevelMeter.setAttribute("aria-valuenow", "0");
 
   const contextToClose = audioContext;
   audioContext = null;
@@ -421,9 +448,10 @@ function connectWebSocket() {
     try {
       switch (message.type) {
         case "joined-room":
+          showRoom(message.roomCode);
           setStatus(message.participantCount === 2 ? "connecting" : "waiting");
           setConnectedControls(true);
-          setMessage(`Rum ${message.roomCode}`);
+          setMessage(message.participantCount === 2 ? "Kopplar upp samtalet..." : "Du är inne. Väntar på en deltagare till.");
           await refreshOpenRooms();
           break;
 
@@ -458,7 +486,7 @@ function connectWebSocket() {
         case "error":
           setStatus("error");
           setMessage(message.message || "Något gick fel.", true);
-          if (message.message?.includes("fullt") || message.message?.includes("lösenord")) {
+          if (roomPanel.hidden || message.message?.includes("fullt") || message.message?.includes("lösenord")) {
             disconnect(false, "error", message.message, true);
           }
           break;
@@ -534,6 +562,7 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
   cleanupPeerConnection();
   cleanupLocalStream();
   setConnectedControls(false);
+  showLobby();
   setStatus(finalStatus);
   setMessage(finalMessage, isError);
   refreshOpenRooms();

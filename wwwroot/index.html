@@ -17,7 +17,7 @@
 
       <div class="brand-copy">
         <p class="eyebrow">Svensk P2P-röstchatt</p>
-        <h1>Prata direkt. Ingen lyssnar.</h1>
+        <h1>Snacka privat, direkt mellan er.</h1>
         <p class="lede">SnickSnack kopplar ihop två webbläsare direkt med WebRTC. Servern hjälper bara er att hitta varandra och lagrar inget ljud.</p>
 
         <ul class="trust-list" aria-label="Integritet">
@@ -51,8 +51,8 @@
           <button id="refreshDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
         </div>
 
-        <label for="inputLevelBar">Mikrofonnivå</label>
-        <div id="inputLevelMeter" class="level-meter" aria-hidden="true">
+        <p id="inputLevelLabel" class="field-label">Mikrofonnivå</p>
+        <div id="inputLevelMeter" class="level-meter" role="meter" aria-labelledby="inputLevelLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span id="inputLevelBar"></span>
         </div>
       </form>
@@ -70,6 +70,8 @@
         <div id="openRoomsList" class="open-rooms-list"></div>
         <p id="openRoomsEmpty" class="empty-text">Inga öppna rum just nu.</p>
       </section>
+
+      <p id="lobbyMessageText" class="message" aria-live="polite"></p>
     </section>
 
     <section class="control-panel room-panel" id="roomPanel" aria-label="Rum" hidden>
