@@ -6,7 +6,7 @@
   <title>SnickSnack</title>
   <link rel="icon" type="image/png" href="/assets/snicksnackfavicon.png">
   <link rel="apple-touch-icon" href="/assets/snicksnackfavicon.png">
-  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-5">
+  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-6">
 </head>
 <body>
   <main class="app-shell" id="appShell">
@@ -148,7 +148,12 @@
       <label for="volumeSlider">Volym för alla du pratar med <span id="volumeValue">100%</span></label>
       <input id="volumeSlider" type="range" min="0" max="100" value="100">
 
-      <section class="chat-panel" aria-label="Textchatt">
+      <div id="remoteAudioContainer" aria-hidden="true"></div>
+      <p id="messageText" class="message" aria-live="polite"></p>
+    </section>
+
+    <section class="control-panel room-chat-panel" aria-label="Textchatt">
+      <section class="chat-panel">
         <div class="section-title-row">
           <h3>Chat</h3>
           <span id="chatStatusText">Inte ansluten</span>
@@ -161,13 +166,10 @@
           <button id="chatSendButton" type="submit">Skicka</button>
         </form>
       </section>
-
-      <div id="remoteAudioContainer" aria-hidden="true"></div>
-      <p id="messageText" class="message" aria-live="polite"></p>
     </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
-  <script src="/app.js?v=snicksnack-room-5" defer></script>
+  <script src="/app.js?v=snicksnack-room-6" defer></script>
 </body>
 </html>

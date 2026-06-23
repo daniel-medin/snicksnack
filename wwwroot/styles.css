@@ -48,13 +48,18 @@ select {
 }
 
 .app-shell.in-room {
-  width: min(720px, calc(100vw - 32px));
-  grid-template-columns: 1fr;
+  width: min(1180px, calc(100vw - 32px));
+  grid-template-columns: minmax(500px, 0.95fr) minmax(360px, 0.7fr);
+  align-items: start;
 }
 
 .app-shell.in-room .brand-panel,
 [hidden] {
   display: none !important;
+}
+
+.app-shell:not(.in-room) .room-chat-panel {
+  display: none;
 }
 
 .brand-panel,
@@ -187,6 +192,15 @@ h1 {
 
 .room-panel {
   min-height: 560px;
+}
+
+.room-chat-panel {
+  min-height: 560px;
+  max-height: calc(100vh - 32px);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  position: sticky;
+  top: 16px;
 }
 
 .room-header {
@@ -381,10 +395,10 @@ h1 {
 
 .chat-panel {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-  margin: 24px 0 0;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  min-height: 0;
+  height: 100%;
 }
 
 .chat-panel .section-title-row span {
@@ -394,8 +408,8 @@ h1 {
 }
 
 .chat-messages {
-  min-height: 132px;
-  max-height: 240px;
+  min-height: 420px;
+  max-height: none;
   display: grid;
   align-content: start;
   gap: 8px;
@@ -715,6 +729,16 @@ input[type="range"] {
 
   .app-shell {
     grid-template-columns: 1fr;
+  }
+
+  .app-shell.in-room {
+    grid-template-columns: 1fr;
+  }
+
+  .room-chat-panel {
+    min-height: 520px;
+    max-height: none;
+    position: static;
   }
 
   .brand-panel {
