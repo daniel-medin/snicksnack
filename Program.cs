@@ -103,7 +103,7 @@ static async Task ReceiveLoopAsync(
             switch (message.Type)
             {
                 case "join-room":
-                    await rooms.JoinAsync(connection, message.RoomCode, message.Password, jsonOptions, cancellationToken);
+                    await rooms.JoinAsync(connection, message.RoomCode, message.Password, message.DisplayName, jsonOptions, cancellationToken);
                     break;
 
                 case "offer":
@@ -140,15 +140,23 @@ sealed class RoomRegistry
         ClientConnection connection,
         string? roomCode,
         string? password,
+        string? displayName,
         JsonSerializerOptions jsonOptions,
         CancellationToken cancellationToken)
     {
         var normalizedRoomCode = NormalizeRoomCode(roomCode);
         var normalizedPassword = NormalizePassword(password);
+        var normalizedDisplayName = NormalizeDisplayName(displayName);
 
         if (normalizedRoomCode is null)
         {
             await SocketSender.SendAsync(connection, "error", "Ange en giltig rumskod.", jsonOptions, cancellationToken);
+            return;
+        }
+
+        if (normalizedDisplayName is null)
+        {
+            await SocketSender.SendAsync(connection, "error", "Ange ett giltigt namn. Använd 2-24 tecken: bokstäver, siffror, mellanslag, punkt, bindestreck eller understreck.", jsonOptions, cancellationToken);
             return;
         }
 
@@ -176,6 +184,7 @@ sealed class RoomRegistry
                 existingPeers = room.Participants.ToList();
                 room.Participants.Add(connection);
                 connection.RoomCode = normalizedRoomCode;
+                connection.DisplayName = normalizedDisplayName;
                 joined = true;
                 participantCount = room.Participants.Count;
             }
@@ -200,7 +209,8 @@ sealed class RoomRegistry
                 RoomCode: normalizedRoomCode,
                 ParticipantCount: participantCount,
                 PeerId: connection.Id,
-                Peers: existingPeers.Select(peer => new PeerInfo(peer.Id)).ToArray()),
+                DisplayName: connection.DisplayName,
+                Peers: existingPeers.Select(peer => new PeerInfo(peer.Id, peer.DisplayName)).ToArray()),
             jsonOptions,
             cancellationToken);
 
@@ -208,7 +218,7 @@ sealed class RoomRegistry
         {
             await SocketSender.SendAsync(
                 peer,
-                new ServerMessage(Type: "peer-joined", PeerId: connection.Id, ParticipantCount: participantCount),
+                new ServerMessage(Type: "peer-joined", PeerId: connection.Id, ParticipantCount: participantCount, DisplayName: connection.DisplayName),
                 jsonOptions,
                 cancellationToken);
         }
@@ -234,13 +244,15 @@ sealed class RoomRegistry
         return openRooms;
     }
 
-    public bool CanJoinChat(string? roomCode, string? password, out string normalizedRoomCode)
+    public bool CanJoinChat(string? roomCode, string? password, string? displayName, out string normalizedRoomCode, out string normalizedDisplayName)
     {
         normalizedRoomCode = "";
+        normalizedDisplayName = "";
         var normalized = NormalizeRoomCode(roomCode);
         var normalizedPassword = NormalizePassword(password);
+        var normalizedName = NormalizeDisplayName(displayName);
 
-        if (normalized is null || !_rooms.TryGetValue(normalized, out var room))
+        if (normalized is null || normalizedName is null || !_rooms.TryGetValue(normalized, out var room))
         {
             return false;
         }
@@ -260,6 +272,7 @@ sealed class RoomRegistry
             }
 
             normalizedRoomCode = normalized;
+            normalizedDisplayName = normalizedName;
             return true;
         }
     }
@@ -379,20 +392,43 @@ sealed class RoomRegistry
 
         return normalized.Length > 128 ? normalized[..128] : normalized;
     }
+
+    private static string? NormalizeDisplayName(string? displayName)
+    {
+        var normalized = string.Join(' ', (displayName ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+        if (normalized.Length is < 2 or > 24)
+        {
+            return null;
+        }
+
+        foreach (var character in normalized)
+        {
+            if (char.IsLetterOrDigit(character) || character is ' ' or '.' or '-' or '_')
+            {
+                continue;
+            }
+
+            return null;
+        }
+
+        return normalized;
+    }
 }
 
 sealed class ChatHub(RoomRegistry rooms) : Hub
 {
     private const int MaxMessageLength = 500;
 
-    public async Task JoinRoom(string roomCode, string? password)
+    public async Task JoinRoom(string roomCode, string? password, string? displayName)
     {
-        if (!rooms.CanJoinChat(roomCode, password, out var normalizedRoomCode))
+        if (!rooms.CanJoinChat(roomCode, password, displayName, out var normalizedRoomCode, out var normalizedDisplayName))
         {
             throw new HubException("Kunde inte ansluta chatten till rummet.");
         }
 
         Context.Items["RoomCode"] = normalizedRoomCode;
+        Context.Items["DisplayName"] = normalizedDisplayName;
         await Groups.AddToGroupAsync(Context.ConnectionId, ChatGroupName(normalizedRoomCode));
     }
 
@@ -402,6 +438,10 @@ sealed class ChatHub(RoomRegistry rooms) : Hub
         {
             throw new HubException("Chatten är inte ansluten till ett rum.");
         }
+
+        var displayName = Context.Items.TryGetValue("DisplayName", out var displayNameValue) && displayNameValue is string name
+            ? name
+            : "Deltagare";
 
         var normalizedMessage = (message ?? "").Trim();
         if (normalizedMessage.Length == 0)
@@ -416,7 +456,7 @@ sealed class ChatHub(RoomRegistry rooms) : Hub
 
         await Clients.Group(ChatGroupName(roomCode)).SendAsync(
             "ReceiveMessage",
-            new ChatMessage(Context.ConnectionId, normalizedMessage, DateTimeOffset.UtcNow));
+            new ChatMessage(Context.ConnectionId, displayName, normalizedMessage, DateTimeOffset.UtcNow));
     }
 
     private static string ChatGroupName(string roomCode)
@@ -450,6 +490,7 @@ sealed class ClientConnection(string id, WebSocket socket)
     public WebSocket Socket { get; } = socket;
     public SemaphoreSlim SendLock { get; } = new(1, 1);
     public string? RoomCode { get; set; }
+    public string DisplayName { get; set; } = "Deltagare";
 }
 
 static class SocketSender
@@ -497,6 +538,7 @@ sealed record ClientMessage(
     string Type,
     string? RoomCode = null,
     string? Password = null,
+    string? DisplayName = null,
     string? PeerId = null,
     string? Sdp = null,
     string? Candidate = null,
@@ -505,9 +547,9 @@ sealed record ClientMessage(
 
 sealed record OpenRoom(string RoomCode, string Name, int ParticipantCount);
 
-sealed record PeerInfo(string PeerId);
+sealed record PeerInfo(string PeerId, string DisplayName);
 
-sealed record ChatMessage(string SenderId, string Text, DateTimeOffset SentAt);
+sealed record ChatMessage(string SenderId, string SenderName, string Text, DateTimeOffset SentAt);
 
 sealed record ServerMessage(
     string Type,
@@ -515,6 +557,7 @@ sealed record ServerMessage(
     string? RoomCode = null,
     int? ParticipantCount = null,
     string? PeerId = null,
+    string? DisplayName = null,
     IReadOnlyList<PeerInfo>? Peers = null,
     string? Sdp = null,
     string? Candidate = null,

@@ -1,4 +1,5 @@
 const joinForm = document.querySelector("#joinForm");
+const displayNameInput = document.querySelector("#displayName");
 const roomCodeInput = document.querySelector("#roomCode");
 const roomPasswordInput = document.querySelector("#roomPassword");
 const microphoneSelect = document.querySelector("#microphoneSelect");
@@ -50,6 +51,7 @@ let ownPeerId = "";
 let localStream = null;
 let selectedRoomCode = "";
 let selectedRoomPassword = "";
+let selectedDisplayName = "";
 let shouldReconnect = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
@@ -106,6 +108,7 @@ function setMessage(message = "", isError = false) {
 
 function setConnectedControls(isConnected) {
   joinButton.disabled = isConnected;
+  displayNameInput.disabled = isConnected;
   roomCodeInput.disabled = isConnected;
   roomPasswordInput.disabled = isConnected;
   microphoneSelect.disabled = isConnected;
@@ -121,6 +124,21 @@ function setMeterLevel(bar, meter, level) {
 function updateParticipantCount() {
   const count = 1 + remoteParticipants.size;
   participantCountText.textContent = count === 1 ? "1 ansluten" : `${count} anslutna`;
+}
+
+function normalizeDisplayName(displayName) {
+  return displayName.trim().replace(/\s+/g, " ");
+}
+
+function isValidDisplayName(displayName) {
+  const normalized = normalizeDisplayName(displayName);
+  return normalized.length >= 2
+    && normalized.length <= 24
+    && /^[\p{L}\p{N} ._-]+$/u.test(normalized);
+}
+
+function displayNameErrorMessage() {
+  return "Ange ett namn med 2-24 tecken. Bokstäver, siffror, mellanslag, punkt, bindestreck och understreck funkar.";
 }
 
 function showLobby() {
@@ -546,7 +564,7 @@ function appendChatMessage(message, isOwn) {
   const time = Number.isNaN(sentAt.getTime())
     ? ""
     : sentAt.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
-  meta.textContent = `${isOwn ? "Du" : "Deltagare"}${time ? ` ${time}` : ""}`;
+  meta.textContent = `${isOwn ? "Du" : (message.senderName || "Deltagare")}${time ? ` ${time}` : ""}`;
 
   const text = document.createElement("p");
   text.textContent = message.text || "";
@@ -592,7 +610,7 @@ async function startChatConnection(roomCode) {
 
   chatConnection.onreconnected(async () => {
     try {
-      await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword);
+      await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword, selectedDisplayName);
       setChatControls(true);
     } catch (error) {
       setChatControls(false, "Chatfel");
@@ -606,7 +624,7 @@ async function startChatConnection(roomCode) {
 
   try {
     await chatConnection.start();
-    await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword);
+    await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword, selectedDisplayName);
     setChatControls(true);
   } catch (error) {
     setChatControls(false, "Chatfel");
@@ -694,12 +712,19 @@ function getRemoteAudioElement(peerId) {
   return getRemoteParticipant(peerId).audio;
 }
 
-function getRemoteParticipant(peerId) {
+function getRemoteParticipant(peerId, displayName = "") {
   if (remoteParticipants.has(peerId)) {
-    return remoteParticipants.get(peerId);
+    const participant = remoteParticipants.get(peerId);
+    if (displayName) {
+      participant.name.textContent = displayName;
+      participant.meter.setAttribute("aria-label", `Ljudnivå för ${displayName}`);
+      participant.volumeSlider.setAttribute("aria-label", `Volym för ${displayName}`);
+    }
+    return participant;
   }
 
   const participantNumber = ++remoteParticipantCounter;
+  const participantName = displayName || `Deltagare ${participantNumber}`;
 
   const audio = document.createElement("audio");
   audio.autoplay = true;
@@ -713,7 +738,7 @@ function getRemoteParticipant(peerId) {
   info.className = "participant-info";
 
   const name = document.createElement("strong");
-  name.textContent = `Deltagare ${participantNumber}`;
+  name.textContent = participantName;
 
   const status = document.createElement("span");
   status.textContent = "Ansluter ljud";
@@ -723,7 +748,7 @@ function getRemoteParticipant(peerId) {
   const meter = document.createElement("div");
   meter.className = "level-meter participant-meter";
   meter.setAttribute("role", "meter");
-  meter.setAttribute("aria-label", `Ljudnivå för deltagare ${participantNumber}`);
+  meter.setAttribute("aria-label", `Ljudnivå för ${participantName}`);
   meter.setAttribute("aria-valuemin", "0");
   meter.setAttribute("aria-valuemax", "100");
   meter.setAttribute("aria-valuenow", "0");
@@ -750,7 +775,7 @@ function getRemoteParticipant(peerId) {
   participantVolumeSlider.min = "0";
   participantVolumeSlider.max = "100";
   participantVolumeSlider.value = volumeSlider.value;
-  participantVolumeSlider.setAttribute("aria-label", `Volym för deltagare ${participantNumber}`);
+  participantVolumeSlider.setAttribute("aria-label", `Volym för ${participantName}`);
 
   participantVolumeSlider.addEventListener("input", () => {
     const volume = Number(participantVolumeSlider.value);
@@ -764,6 +789,7 @@ function getRemoteParticipant(peerId) {
   const participant = {
     audio,
     card,
+    name,
     status,
     meter,
     levelBar,
@@ -988,9 +1014,16 @@ function renderOpenRooms(rooms) {
     button.querySelector("strong").textContent = room.name || room.roomCode;
     button.querySelector("span").textContent = `${room.participantCount}/8`;
     button.addEventListener("click", async () => {
+      if (!isValidDisplayName(displayNameInput.value)) {
+        setStatus("error");
+        setMessage(displayNameErrorMessage(), true);
+        displayNameInput.focus();
+        return;
+      }
+
       roomCodeInput.value = room.roomCode;
       roomPasswordInput.value = "";
-      await connect(room.roomCode, "");
+      await connect(room.roomCode, "", displayNameInput.value);
     });
     openRoomsList.append(button);
   });
@@ -1024,7 +1057,8 @@ function connectWebSocket() {
     sendSignal({
       type: "join-room",
       roomCode: selectedRoomCode,
-      password: selectedRoomPassword
+      password: selectedRoomPassword,
+      displayName: selectedDisplayName
     });
   });
 
@@ -1041,6 +1075,7 @@ function connectWebSocket() {
           setConnectedControls(true);
           setMessage(message.participantCount > 1 ? "Kopplar upp samtalet..." : "Du är inne. Väntar på fler deltagare.");
           for (const peer of message.peers || []) {
+            getRemoteParticipant(peer.peerId, peer.displayName);
             await createAndSendOffer(peer.peerId);
           }
           await refreshOpenRooms();
@@ -1048,6 +1083,7 @@ function connectWebSocket() {
 
         case "peer-joined":
           setStatus("connecting");
+          getRemoteParticipant(message.peerId, message.displayName);
           createPeerConnection(message.peerId);
           setMessage("En deltagare anslöt. Kopplar upp samtalet...");
           break;
@@ -1107,9 +1143,19 @@ function connectWebSocket() {
   });
 }
 
-async function connect(roomCode, password) {
+async function connect(roomCode, password, displayName = selectedDisplayName) {
   selectedRoomCode = roomCode.trim().toUpperCase();
   selectedRoomPassword = password.trim();
+  selectedDisplayName = normalizeDisplayName(displayName);
+
+  if (!isValidDisplayName(selectedDisplayName)) {
+    shouldReconnect = false;
+    setConnectedControls(false);
+    setStatus("error");
+    setMessage(displayNameErrorMessage(), true);
+    return;
+  }
+
   shouldReconnect = true;
   reconnectAttempts = 0;
   setConnectedControls(true);
@@ -1167,6 +1213,13 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
 joinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  if (!isValidDisplayName(displayNameInput.value)) {
+    setStatus("error");
+    setMessage(displayNameErrorMessage(), true);
+    displayNameInput.focus();
+    return;
+  }
+
   const roomCode = roomCodeInput.value;
   if (!roomCode.trim()) {
     setStatus("error");
@@ -1174,7 +1227,7 @@ joinForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  await connect(roomCode, roomPasswordInput.value);
+  await connect(roomCode, roomPasswordInput.value, displayNameInput.value);
 });
 
 leaveButton.addEventListener("click", () => disconnect(true));

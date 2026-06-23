@@ -6,7 +6,7 @@
   <title>SnickSnack</title>
   <link rel="icon" type="image/png" href="/assets/snicksnackfavicon.png">
   <link rel="apple-touch-icon" href="/assets/snicksnackfavicon.png">
-  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-4">
+  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-5">
 </head>
 <body>
   <main class="app-shell" id="appShell">
@@ -35,6 +35,9 @@
       </div>
 
       <form id="joinForm" class="join-form">
+        <label for="displayName">Namn</label>
+        <input id="displayName" name="displayName" type="text" minlength="2" maxlength="24" autocomplete="nickname" placeholder="Ditt namn" required>
+
         <label for="roomCode">Rumskod</label>
         <div class="inline-row">
           <input id="roomCode" name="roomCode" type="text" maxlength="32" autocomplete="off" placeholder="ABC123" required>
@@ -165,6 +168,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
-  <script src="/app.js?v=snicksnack-room-4" defer></script>
+  <script src="/app.js?v=snicksnack-room-5" defer></script>
 </body>
 </html>
