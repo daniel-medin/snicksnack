@@ -3,36 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Snick Snack</title>
-  <link rel="stylesheet" href="/styles.css">
+  <title>SnickSnack</title>
+  <link rel="icon" type="image/png" href="/assets/snicksnackfavicon.png">
+  <link rel="apple-touch-icon" href="/assets/snicksnackfavicon.png">
+  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-1">
 </head>
 <body>
-  <main class="app-shell">
-    <section class="brand-panel" aria-label="Snick Snack">
-      <div class="logo-mark" aria-hidden="true">
-        <span></span>
-        <span></span>
-        <span></span>
-        <span></span>
+  <main class="app-shell" id="appShell">
+    <section class="brand-panel" aria-label="SnickSnack">
+      <div class="brand-art">
+        <img src="/assets/snicksnacklogo.png" alt="SnickSnack">
       </div>
-      <div>
-        <p class="eyebrow">Svensk P2P-röstchat</p>
-        <h1>Snick Snack</h1>
+
+      <div class="brand-copy">
+        <p class="eyebrow">Svensk P2P-röstchatt</p>
+        <h1>Prata direkt. Ingen lyssnar.</h1>
+        <p class="lede">SnickSnack kopplar ihop två webbläsare direkt med WebRTC. Servern hjälper bara er att hitta varandra och lagrar inget ljud.</p>
+
+        <ul class="trust-list" aria-label="Integritet">
+          <li>Inget ljud sparas</li>
+          <li>Ingen inspelning</li>
+          <li>Ingen avlyssning</li>
+        </ul>
       </div>
     </section>
 
-    <section class="control-panel" aria-label="Anslut till rum">
-      <div class="status-row">
-        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
-        <p id="statusText" role="status" aria-live="polite">Inte ansluten</p>
+    <section class="control-panel lobby-panel" id="lobbyPanel" aria-label="Lobby">
+      <div class="panel-heading">
+        <p class="eyebrow">Lobby</p>
+        <h2>Välj ett rum</h2>
       </div>
 
       <form id="joinForm" class="join-form">
         <label for="roomCode">Rumskod</label>
         <div class="inline-row">
           <input id="roomCode" name="roomCode" type="text" maxlength="32" autocomplete="off" placeholder="ABC123" required>
-          <button id="joinButton" type="submit">Anslut</button>
-          <button id="leaveButton" type="button" class="secondary" disabled>Lämna</button>
+          <button id="joinButton" type="submit">Gå in</button>
         </div>
 
         <label for="roomPassword">Lösenord</label>
@@ -41,7 +47,7 @@
         <label for="microphoneSelect">Mikrofon</label>
         <div class="inline-row device-row">
           <select id="microphoneSelect" name="microphoneSelect"></select>
-          <button id="testMicrophoneButton" type="button" class="secondary compact-button">Test</button>
+          <button id="testMicrophoneButton" type="button" class="secondary compact-button">Testa</button>
           <button id="refreshDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
         </div>
 
@@ -49,10 +55,12 @@
         <div id="inputLevelMeter" class="level-meter" aria-hidden="true">
           <span id="inputLevelBar"></span>
         </div>
-
-        <label for="volumeSlider">Inkommande volym <span id="volumeValue">100%</span></label>
-        <input id="volumeSlider" type="range" min="0" max="100" value="100">
       </form>
+
+      <section class="privacy-note" aria-label="Så funkar ljudet">
+        <strong>Privat som standard</strong>
+        <span>Ljudströmmen går mellan deltagarna. SnickSnack-servern får aldrig ditt samtalsljud.</span>
+      </section>
 
       <section class="open-rooms" aria-label="Öppna rum">
         <div class="section-title-row">
@@ -62,12 +70,40 @@
         <div id="openRoomsList" class="open-rooms-list"></div>
         <p id="openRoomsEmpty" class="empty-text">Inga öppna rum just nu.</p>
       </section>
+    </section>
+
+    <section class="control-panel room-panel" id="roomPanel" aria-label="Rum" hidden>
+      <div class="room-header">
+        <div>
+          <p class="eyebrow">Rum</p>
+          <h2 id="activeRoomTitle">Rum</h2>
+        </div>
+        <button id="leaveButton" type="button" class="secondary">Lämna</button>
+      </div>
+
+      <div class="status-row room-status">
+        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+        <p id="statusText" role="status" aria-live="polite">Inte ansluten</p>
+      </div>
+
+      <section class="call-card" aria-label="Samtal">
+        <div class="call-avatar" aria-hidden="true">
+          <img src="/assets/snicksnackfavicon.png" alt="">
+        </div>
+        <div>
+          <h3>Direktsamtal</h3>
+          <p>Du är inne i rummet. När en annan deltagare ansluter går ljudet direkt mellan era webbläsare.</p>
+        </div>
+      </section>
+
+      <label for="volumeSlider">Volym för personen du pratar med <span id="volumeValue">100%</span></label>
+      <input id="volumeSlider" type="range" min="0" max="100" value="100">
 
       <audio id="remoteAudio" autoplay playsinline></audio>
       <p id="messageText" class="message" aria-live="polite"></p>
     </section>
   </main>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=snicksnack-room-1" defer></script>
 </body>
 </html>
