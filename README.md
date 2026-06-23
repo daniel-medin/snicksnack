@@ -69,3 +69,24 @@ Deployscriptet ligger i `deploy/oracle/deploy-oracle.ps1` och följer samma serv
 ```
 
 DNS-namnet i `-PublicUrl` måste peka mot Oracle-servern för att HTTPS och mikrofonåtkomst ska fungera i webbläsaren.
+
+Deploy körs också via GitHub Actions på push till `main` eller `master`:
+
+```text
+.github/workflows/deploy-oracle.yml
+```
+
+Required GitHub secret:
+
+```text
+ORACLE_SSH_PRIVATE_KEY
+```
+
+Optional GitHub variables:
+
+```text
+ORACLE_HOST=82.70.47.203
+ORACLE_SSH_USER=ubuntu
+SNICKSNACK_REMOTE_APP_DIR=/opt/stacks/snicksnack
+SNICKSNACK_PUBLIC_URL=https://snicksnack.mrcheng.se/
+```
