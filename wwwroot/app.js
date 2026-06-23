@@ -118,6 +118,39 @@ function selectedDeviceMatchesCurrentStream() {
   return !selectedDeviceId || !activeDeviceId || selectedDeviceId === activeDeviceId;
 }
 
+function audioConstraints(deviceId) {
+  return {
+    audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    },
+    video: false
+  };
+}
+
+function microphoneErrorMessage(error) {
+  switch (error?.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Mikrofonåtkomst nekades. Tillåt mikrofonen i webbläsaren och operativsystemet.";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "Ingen mikrofon hittades.";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "Mikrofonen används redan eller kunde inte startas.";
+    case "OverconstrainedError":
+    case "ConstraintNotSatisfiedError":
+      return "Den valda mikrofonen kunde inte användas. Välj en annan mikrofon.";
+    case "AbortError":
+      return "Mikrofonstarten avbröts av webbläsaren.";
+    default:
+      return `Mikrofonåtkomst misslyckades${error?.name ? ` (${error.name})` : ""}.`;
+  }
+}
+
 async function getLocalAudioStream() {
   if (selectedDeviceMatchesCurrentStream()) {
     return localStream;
@@ -126,15 +159,16 @@ async function getLocalAudioStream() {
   cleanupLocalStream();
 
   const deviceId = microphoneSelect.value;
-  localStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      deviceId: deviceId ? { exact: deviceId } : undefined,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    },
-    video: false
-  });
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia(audioConstraints(deviceId));
+  } catch (error) {
+    if (!deviceId || !["OverconstrainedError", "ConstraintNotSatisfiedError", "NotFoundError"].includes(error?.name)) {
+      throw error;
+    }
+
+    microphoneSelect.value = "";
+    localStream = await navigator.mediaDevices.getUserMedia(audioConstraints(""));
+  }
 
   await refreshDevices();
   startInputMeter(localStream);
@@ -469,7 +503,8 @@ async function connect(roomCode, password) {
     shouldReconnect = false;
     setConnectedControls(false);
     setStatus("error");
-    setMessage("Mikrofonåtkomst nekades eller misslyckades.", true);
+    setMessage(microphoneErrorMessage(error), true);
+    console.error(error);
   }
 }
 
@@ -479,7 +514,8 @@ async function testMicrophone() {
     setMessage("Mikrofontest aktivt.");
   } catch (error) {
     setStatus("error");
-    setMessage("Mikrofonåtkomst nekades eller misslyckades.", true);
+    setMessage(microphoneErrorMessage(error), true);
+    console.error(error);
   }
 }
 
@@ -541,7 +577,7 @@ window.addEventListener("beforeunload", () => {
   sendSignal({ type: "leave-room" });
 });
 
-if (!("mediaDevices" in navigator) || !("RTCPeerConnection" in window)) {
+if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices) || !("RTCPeerConnection" in window)) {
   setStatus("error");
   setMessage("Din webbläsare saknar stöd för WebRTC eller mikrofonåtkomst.", true);
   setConnectedControls(false);
