@@ -220,11 +220,12 @@ function stopInputMeter() {
   meterData = null;
   inputLevelBar.style.width = "0%";
 
-  if (audioContext?.state !== "closed") {
-    audioContext.close();
-  }
-
+  const contextToClose = audioContext;
   audioContext = null;
+
+  if (contextToClose && contextToClose.state !== "closed") {
+    contextToClose.close();
+  }
 }
 
 function createPeerConnection() {
