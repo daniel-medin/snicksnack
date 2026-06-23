@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snick Snack</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="brand-panel" aria-label="Snick Snack">
+      <div class="logo-mark" aria-hidden="true">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div>
+        <p class="eyebrow">Svensk P2P-röstchat</p>
+        <h1>Snick Snack</h1>
+      </div>
+    </section>
+
+    <section class="control-panel" aria-label="Anslut till rum">
+      <div class="status-row">
+        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+        <p id="statusText" role="status" aria-live="polite">Inte ansluten</p>
+      </div>
+
+      <form id="joinForm" class="join-form">
+        <label for="roomCode">Rumskod</label>
+        <div class="inline-row">
+          <input id="roomCode" name="roomCode" type="text" maxlength="32" autocomplete="off" placeholder="ABC123" required>
+          <button id="joinButton" type="submit">Anslut</button>
+          <button id="leaveButton" type="button" class="secondary" disabled>Lämna</button>
+        </div>
+
+        <label for="microphoneSelect">Mikrofon</label>
+        <div class="inline-row device-row">
+          <select id="microphoneSelect" name="microphoneSelect"></select>
+          <button id="refreshDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
+        </div>
+
+        <label for="volumeSlider">Inkommande volym <span id="volumeValue">100%</span></label>
+        <input id="volumeSlider" type="range" min="0" max="100" value="100">
+      </form>
+
+      <audio id="remoteAudio" autoplay playsinline></audio>
+      <p id="messageText" class="message" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

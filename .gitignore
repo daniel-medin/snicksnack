@@ -1,0 +1,10 @@
+.vs/
+bin/
+bin_verify/
+obj/
+*.user
+*.suo
+*.log
+TestResults/
+publish/
+deploy/oracle/app.env

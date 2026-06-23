@@ -1,0 +1,21 @@
+services:
+  snicksnack-web:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: snicksnack-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+    expose:
+      - "8080"
+    networks:
+      - shared_backend
+
+networks:
+  shared_backend:
+    external: true
+    name: shared_backend

@@ -1,0 +1,4 @@
+snicksnack.mrcheng.se {
+    encode zstd gzip
+    reverse_proxy snicksnack-web:8080
+}
