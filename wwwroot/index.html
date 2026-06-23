@@ -6,7 +6,7 @@
   <title>SnickSnack</title>
   <link rel="icon" type="image/png" href="/assets/snicksnackfavicon.png">
   <link rel="apple-touch-icon" href="/assets/snicksnackfavicon.png">
-  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-1">
+  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-2">
 </head>
 <body>
   <main class="app-shell" id="appShell">
@@ -98,6 +98,27 @@
         </div>
       </section>
 
+      <section class="participants-panel" aria-label="Deltagare">
+        <div class="section-title-row">
+          <h3>Deltagare</h3>
+          <span id="participantCountText">1 ansluten</span>
+        </div>
+
+        <div class="participant-list">
+          <article class="participant-card self-participant">
+            <div class="participant-info">
+              <strong>Du</strong>
+              <span>Mikrofon</span>
+            </div>
+            <div id="roomInputLevelMeter" class="level-meter participant-meter" role="meter" aria-label="Din mikrofonnivå" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <span id="roomInputLevelBar"></span>
+            </div>
+          </article>
+
+          <div id="remoteParticipantsList" class="participant-list remote-participant-list"></div>
+        </div>
+      </section>
+
       <label for="volumeSlider">Volym för alla du pratar med <span id="volumeValue">100%</span></label>
       <input id="volumeSlider" type="range" min="0" max="100" value="100">
 
@@ -106,6 +127,6 @@
     </section>
   </main>
 
-  <script src="/app.js?v=snicksnack-room-1" defer></script>
+  <script src="/app.js?v=snicksnack-room-2" defer></script>
 </body>
 </html>

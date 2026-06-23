@@ -249,6 +249,101 @@ h1 {
   font-weight: 650;
 }
 
+.participants-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.participants-panel .section-title-row {
+  align-items: baseline;
+}
+
+.participants-panel h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.participants-panel .section-title-row span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.participant-list,
+.remote-participant-list {
+  display: grid;
+  gap: 10px;
+}
+
+.participant-card {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(140px, 1fr) minmax(150px, 0.9fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(242, 138, 0, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.self-participant {
+  grid-template-columns: minmax(130px, 0.8fr) minmax(140px, 1fr);
+}
+
+.participant-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.participant-info strong,
+.participant-info span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.participant-info strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.participant-info span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.participant-meter {
+  height: 12px;
+}
+
+.participant-volume {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.participant-volume-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.participant-volume-header output {
+  color: var(--accent-dark);
+  font: inherit;
+}
+
 .status-row {
   min-height: 52px;
   display: flex;
@@ -451,7 +546,8 @@ input[type="range"] {
   gap: 12px;
 }
 
-.section-title-row h2 {
+.section-title-row h2,
+.section-title-row h3 {
   margin: 0;
   font-size: 1rem;
 }
@@ -566,6 +662,11 @@ input[type="range"] {
   }
 
   .call-card {
+    grid-template-columns: 1fr;
+  }
+
+  .participant-card,
+  .self-participant {
     grid-template-columns: 1fr;
   }
 
