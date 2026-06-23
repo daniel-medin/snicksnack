@@ -38,6 +38,7 @@ app.Map("/ws", async context =>
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/api/open-rooms", () => Results.Ok(rooms.GetOpenRooms()));
 
 app.Run();
 
@@ -49,69 +50,79 @@ static async Task ReceiveLoopAsync(
 {
     var buffer = new byte[8 * 1024];
 
-    while (connection.Socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+    try
     {
-        using var payload = new MemoryStream();
-        WebSocketReceiveResult result;
-
-        do
+        while (connection.Socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
         {
-            result = await connection.Socket.ReceiveAsync(buffer, cancellationToken);
+            using var payload = new MemoryStream();
+            WebSocketReceiveResult result;
 
-            if (result.MessageType == WebSocketMessageType.Close)
+            do
             {
-                return;
+                result = await connection.Socket.ReceiveAsync(buffer, cancellationToken);
+
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                payload.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
+
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                await SocketSender.SendAsync(connection, "error", "Endast JSON-textmeddelanden stöds.", jsonOptions, cancellationToken);
+                continue;
             }
 
-            payload.Write(buffer, 0, result.Count);
+            payload.Position = 0;
+
+            ClientMessage? message;
+            try
+            {
+                message = await JsonSerializer.DeserializeAsync<ClientMessage>(payload, jsonOptions, cancellationToken);
+            }
+            catch (JsonException)
+            {
+                await SocketSender.SendAsync(connection, "error", "Ogiltig JSON.", jsonOptions, cancellationToken);
+                continue;
+            }
+
+            if (message is null || string.IsNullOrWhiteSpace(message.Type))
+            {
+                await SocketSender.SendAsync(connection, "error", "Meddelandet saknar type.", jsonOptions, cancellationToken);
+                continue;
+            }
+
+            switch (message.Type)
+            {
+                case "join-room":
+                    await rooms.JoinAsync(connection, message.RoomCode, message.Password, jsonOptions, cancellationToken);
+                    break;
+
+                case "offer":
+                case "answer":
+                case "ice-candidate":
+                    await rooms.ForwardToPeerAsync(connection, message, jsonOptions, cancellationToken);
+                    break;
+
+                case "leave-room":
+                    await rooms.LeaveAsync(connection, jsonOptions, cancellationToken);
+                    break;
+
+                default:
+                    await SocketSender.SendAsync(connection, "error", $"Okänd meddelandetyp: {message.Type}", jsonOptions, cancellationToken);
+                    break;
+            }
         }
-        while (!result.EndOfMessage);
-
-        if (result.MessageType != WebSocketMessageType.Text)
-        {
-            await SocketSender.SendAsync(connection, "error", "Endast JSON-textmeddelanden stöds.", jsonOptions, cancellationToken);
-            continue;
-        }
-
-        payload.Position = 0;
-
-        ClientMessage? message;
-        try
-        {
-            message = await JsonSerializer.DeserializeAsync<ClientMessage>(payload, jsonOptions, cancellationToken);
-        }
-        catch (JsonException)
-        {
-            await SocketSender.SendAsync(connection, "error", "Ogiltig JSON.", jsonOptions, cancellationToken);
-            continue;
-        }
-
-        if (message is null || string.IsNullOrWhiteSpace(message.Type))
-        {
-            await SocketSender.SendAsync(connection, "error", "Meddelandet saknar type.", jsonOptions, cancellationToken);
-            continue;
-        }
-
-        switch (message.Type)
-        {
-            case "join-room":
-                await rooms.JoinAsync(connection, message.RoomCode, jsonOptions, cancellationToken);
-                break;
-
-            case "offer":
-            case "answer":
-            case "ice-candidate":
-                await rooms.ForwardToPeerAsync(connection, message, jsonOptions, cancellationToken);
-                break;
-
-            case "leave-room":
-                await rooms.LeaveAsync(connection, jsonOptions, cancellationToken);
-                break;
-
-            default:
-                await SocketSender.SendAsync(connection, "error", $"Okänd meddelandetyp: {message.Type}", jsonOptions, cancellationToken);
-                break;
-        }
+    }
+    catch (WebSocketException)
+    {
+        // Browsers and test clients can disappear without a close handshake.
+    }
+    catch (OperationCanceledException)
+    {
     }
 }
 
@@ -122,10 +133,12 @@ sealed class RoomRegistry
     public async Task JoinAsync(
         ClientConnection connection,
         string? roomCode,
+        string? password,
         JsonSerializerOptions jsonOptions,
         CancellationToken cancellationToken)
     {
         var normalizedRoomCode = NormalizeRoomCode(roomCode);
+        var normalizedPassword = NormalizePassword(password);
 
         if (normalizedRoomCode is null)
         {
@@ -138,16 +151,21 @@ sealed class RoomRegistry
             await LeaveAsync(connection, jsonOptions, cancellationToken);
         }
 
-        var room = _rooms.GetOrAdd(normalizedRoomCode, code => new Room(code));
+        var room = _rooms.GetOrAdd(normalizedRoomCode, code => new Room(code, normalizedPassword));
         ClientConnection? waitingPeer = null;
         var joined = false;
         var participantCount = 0;
+        var passwordRejected = false;
 
         lock (room.SyncRoot)
         {
             room.RemoveClosedConnections();
 
-            if (room.Participants.Count < 2)
+            if (!room.PasswordMatches(normalizedPassword))
+            {
+                passwordRejected = true;
+            }
+            else if (room.Participants.Count < 2)
             {
                 waitingPeer = room.Participants.FirstOrDefault();
                 room.Participants.Add(connection);
@@ -155,6 +173,12 @@ sealed class RoomRegistry
                 joined = true;
                 participantCount = room.Participants.Count;
             }
+        }
+
+        if (passwordRejected)
+        {
+            await SocketSender.SendAsync(connection, "error", "Fel lösenord för rummet.", jsonOptions, cancellationToken);
+            return;
         }
 
         if (!joined)
@@ -175,6 +199,26 @@ sealed class RoomRegistry
             await SocketSender.SendAsync(waitingPeer, new ServerMessage(Type: "peer-joined", Initiator: true), jsonOptions, cancellationToken);
             await SocketSender.SendAsync(connection, new ServerMessage(Type: "peer-joined", Initiator: false), jsonOptions, cancellationToken);
         }
+    }
+
+    public IReadOnlyList<OpenRoom> GetOpenRooms()
+    {
+        var openRooms = new List<OpenRoom>();
+
+        foreach (var room in _rooms.Values.OrderBy(room => room.Code))
+        {
+            lock (room.SyncRoot)
+            {
+                room.RemoveClosedConnections();
+
+                if (!room.HasPassword && room.Participants.Count is > 0 and < 2)
+                {
+                    openRooms.Add(new OpenRoom(room.Code, room.Code, room.Participants.Count));
+                }
+            }
+        }
+
+        return openRooms;
     }
 
     public async Task ForwardToPeerAsync(
@@ -267,13 +311,32 @@ sealed class RoomRegistry
 
         return normalized;
     }
+
+    private static string? NormalizePassword(string? password)
+    {
+        var normalized = password?.Trim();
+
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return null;
+        }
+
+        return normalized.Length > 128 ? normalized[..128] : normalized;
+    }
 }
 
-sealed class Room(string code)
+sealed class Room(string code, string? password)
 {
     public string Code { get; } = code;
+    public string? Password { get; } = password;
+    public bool HasPassword => Password is not null;
     public object SyncRoot { get; } = new();
     public List<ClientConnection> Participants { get; } = [];
+
+    public bool PasswordMatches(string? password)
+    {
+        return Password is null || string.Equals(Password, password, StringComparison.Ordinal);
+    }
 
     public void RemoveClosedConnections()
     {
@@ -333,10 +396,13 @@ static class SocketSender
 sealed record ClientMessage(
     string Type,
     string? RoomCode = null,
+    string? Password = null,
     string? Sdp = null,
     string? Candidate = null,
     string? SdpMid = null,
     int? SdpMLineIndex = null);
+
+sealed record OpenRoom(string RoomCode, string Name, int ParticipantCount);
 
 sealed record ServerMessage(
     string Type,

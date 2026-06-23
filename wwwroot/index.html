@@ -35,15 +35,33 @@
           <button id="leaveButton" type="button" class="secondary" disabled>Lämna</button>
         </div>
 
+        <label for="roomPassword">Lösenord</label>
+        <input id="roomPassword" name="roomPassword" type="password" maxlength="128" autocomplete="current-password" placeholder="Valfritt">
+
         <label for="microphoneSelect">Mikrofon</label>
         <div class="inline-row device-row">
           <select id="microphoneSelect" name="microphoneSelect"></select>
+          <button id="testMicrophoneButton" type="button" class="secondary compact-button">Test</button>
           <button id="refreshDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
+        </div>
+
+        <label for="inputLevelBar">Mikrofonnivå</label>
+        <div id="inputLevelMeter" class="level-meter" aria-hidden="true">
+          <span id="inputLevelBar"></span>
         </div>
 
         <label for="volumeSlider">Inkommande volym <span id="volumeValue">100%</span></label>
         <input id="volumeSlider" type="range" min="0" max="100" value="100">
       </form>
+
+      <section class="open-rooms" aria-label="Öppna rum">
+        <div class="section-title-row">
+          <h2>Öppna rum</h2>
+          <button id="refreshRoomsButton" type="button" class="icon-button" title="Uppdatera öppna rum" aria-label="Uppdatera öppna rum">↻</button>
+        </div>
+        <div id="openRoomsList" class="open-rooms-list"></div>
+        <p id="openRoomsEmpty" class="empty-text">Inga öppna rum just nu.</p>
+      </section>
 
       <audio id="remoteAudio" autoplay playsinline></audio>
       <p id="messageText" class="message" aria-live="polite"></p>

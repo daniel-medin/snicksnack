@@ -7,8 +7,11 @@ Servern hanterar endast signaling: `join-room`, `offer`, `answer`, `ice-candidat
 ## Funktioner
 
 - Rumskod med max 2 deltagare per rum
+- Frivilligt lösenord när rummet skapas
+- Lista över öppna rum utan lösenord via `/api/open-rooms`
 - Tydliga statusar: inte ansluten, ansluter, väntar, ansluten, frånkopplad och fel
 - Mikrofonval via `enumerateDevices()`
+- Input VU-mätare för vald mikrofon
 - `getUserMedia()` med echo cancellation, noise suppression och auto gain control
 - Inkommande volymkontroll via `HTMLAudioElement.volume`
 - WebSocket-signalering på `/ws`

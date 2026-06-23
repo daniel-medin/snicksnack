@@ -1,7 +1,9 @@
 const joinForm = document.querySelector("#joinForm");
 const roomCodeInput = document.querySelector("#roomCode");
+const roomPasswordInput = document.querySelector("#roomPassword");
 const microphoneSelect = document.querySelector("#microphoneSelect");
 const refreshDevicesButton = document.querySelector("#refreshDevicesButton");
+const testMicrophoneButton = document.querySelector("#testMicrophoneButton");
 const joinButton = document.querySelector("#joinButton");
 const leaveButton = document.querySelector("#leaveButton");
 const statusText = document.querySelector("#statusText");
@@ -10,6 +12,10 @@ const messageText = document.querySelector("#messageText");
 const remoteAudio = document.querySelector("#remoteAudio");
 const volumeSlider = document.querySelector("#volumeSlider");
 const volumeValue = document.querySelector("#volumeValue");
+const inputLevelBar = document.querySelector("#inputLevelBar");
+const openRoomsList = document.querySelector("#openRoomsList");
+const openRoomsEmpty = document.querySelector("#openRoomsEmpty");
+const refreshRoomsButton = document.querySelector("#refreshRoomsButton");
 
 const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
@@ -19,9 +25,15 @@ let ws = null;
 let pc = null;
 let localStream = null;
 let selectedRoomCode = "";
+let selectedRoomPassword = "";
 let shouldReconnect = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
+let audioContext = null;
+let analyser = null;
+let meterSource = null;
+let meterFrame = null;
+let meterData = null;
 
 const rtcConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -50,8 +62,10 @@ function setConnectedControls(isConnected) {
   joinButton.disabled = isConnected;
   leaveButton.disabled = !isConnected;
   roomCodeInput.disabled = isConnected;
+  roomPasswordInput.disabled = isConnected;
   microphoneSelect.disabled = isConnected;
   refreshDevicesButton.disabled = isConnected;
+  testMicrophoneButton.disabled = isConnected;
 }
 
 function websocketUrl() {
@@ -74,8 +88,7 @@ async function refreshDevices() {
     microphoneSelect.innerHTML = "";
 
     if (microphones.length === 0) {
-      const option = new Option("Ingen mikrofon hittades", "");
-      microphoneSelect.append(option);
+      microphoneSelect.append(new Option("Ingen mikrofon hittades", ""));
       return;
     }
 
@@ -92,10 +105,25 @@ async function refreshDevices() {
   }
 }
 
-async function getLocalAudioStream() {
-  if (localStream) {
-    localStream.getTracks().forEach((track) => track.stop());
+function selectedDeviceMatchesCurrentStream() {
+  const track = localStream?.getAudioTracks()[0];
+
+  if (!track || track.readyState !== "live") {
+    return false;
   }
+
+  const selectedDeviceId = microphoneSelect.value;
+  const activeDeviceId = track.getSettings().deviceId;
+
+  return !selectedDeviceId || !activeDeviceId || selectedDeviceId === activeDeviceId;
+}
+
+async function getLocalAudioStream() {
+  if (selectedDeviceMatchesCurrentStream()) {
+    return localStream;
+  }
+
+  cleanupLocalStream();
 
   const deviceId = microphoneSelect.value;
   localStream = await navigator.mediaDevices.getUserMedia({
@@ -109,7 +137,60 @@ async function getLocalAudioStream() {
   });
 
   await refreshDevices();
+  startInputMeter(localStream);
   return localStream;
+}
+
+function startInputMeter(stream) {
+  stopInputMeter();
+
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) {
+    return;
+  }
+
+  audioContext = new AudioContextCtor();
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.72;
+  meterData = new Uint8Array(analyser.fftSize);
+  meterSource = audioContext.createMediaStreamSource(stream);
+  meterSource.connect(analyser);
+
+  const draw = () => {
+    analyser.getByteTimeDomainData(meterData);
+
+    let sum = 0;
+    for (const sample of meterData) {
+      const centered = (sample - 128) / 128;
+      sum += centered * centered;
+    }
+
+    const rms = Math.sqrt(sum / meterData.length);
+    inputLevelBar.style.width = `${Math.min(100, Math.round(rms * 260))}%`;
+    meterFrame = window.requestAnimationFrame(draw);
+  };
+
+  draw();
+}
+
+function stopInputMeter() {
+  if (meterFrame) {
+    window.cancelAnimationFrame(meterFrame);
+    meterFrame = null;
+  }
+
+  meterSource?.disconnect();
+  meterSource = null;
+  analyser = null;
+  meterData = null;
+  inputLevelBar.style.width = "0%";
+
+  if (audioContext?.state !== "closed") {
+    audioContext.close();
+  }
+
+  audioContext = null;
 }
 
 function createPeerConnection() {
@@ -171,6 +252,8 @@ function cleanupPeerConnection() {
 }
 
 function cleanupLocalStream() {
+  stopInputMeter();
+
   if (localStream) {
     localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
@@ -227,6 +310,44 @@ async function handleIceCandidate(message) {
   }
 }
 
+async function refreshOpenRooms() {
+  try {
+    const response = await fetch("/api/open-rooms", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const rooms = await response.json();
+    renderOpenRooms(rooms);
+  } catch (error) {
+    openRoomsList.innerHTML = "";
+    openRoomsEmpty.textContent = "Kunde inte hämta öppna rum.";
+    openRoomsEmpty.hidden = false;
+  }
+}
+
+function renderOpenRooms(rooms) {
+  openRoomsList.innerHTML = "";
+  openRoomsEmpty.textContent = "Inga öppna rum just nu.";
+  openRoomsEmpty.hidden = rooms.length > 0;
+
+  rooms.forEach((room) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "room-button";
+    button.disabled = shouldReconnect;
+    button.innerHTML = `<strong></strong><span></span>`;
+    button.querySelector("strong").textContent = room.name || room.roomCode;
+    button.querySelector("span").textContent = `${room.participantCount}/2`;
+    button.addEventListener("click", async () => {
+      roomCodeInput.value = room.roomCode;
+      roomPasswordInput.value = "";
+      await connect(room.roomCode, "");
+    });
+    openRoomsList.append(button);
+  });
+}
+
 function scheduleReconnect() {
   if (!shouldReconnect || reconnectTimer) {
     return;
@@ -252,7 +373,11 @@ function connectWebSocket() {
 
   ws.addEventListener("open", () => {
     reconnectAttempts = 0;
-    sendSignal({ type: "join-room", roomCode: selectedRoomCode });
+    sendSignal({
+      type: "join-room",
+      roomCode: selectedRoomCode,
+      password: selectedRoomPassword
+    });
   });
 
   ws.addEventListener("message", async (event) => {
@@ -264,6 +389,7 @@ function connectWebSocket() {
           setStatus(message.participantCount === 2 ? "connecting" : "waiting");
           setConnectedControls(true);
           setMessage(`Rum ${message.roomCode}`);
+          await refreshOpenRooms();
           break;
 
         case "peer-joined":
@@ -291,12 +417,13 @@ function connectWebSocket() {
           cleanupPeerConnection();
           setStatus("waiting");
           setMessage("Den andra deltagaren lämnade rummet.");
+          await refreshOpenRooms();
           break;
 
         case "error":
           setStatus("error");
           setMessage(message.message || "Något gick fel.", true);
-          if (message.message?.includes("fullt")) {
+          if (message.message?.includes("fullt") || message.message?.includes("lösenord")) {
             disconnect(false, "error", message.message, true);
           }
           break;
@@ -326,8 +453,9 @@ function connectWebSocket() {
   });
 }
 
-async function connect(roomCode) {
+async function connect(roomCode, password) {
   selectedRoomCode = roomCode.trim().toUpperCase();
+  selectedRoomPassword = password.trim();
   shouldReconnect = true;
   reconnectAttempts = 0;
   setConnectedControls(true);
@@ -340,6 +468,16 @@ async function connect(roomCode) {
   } catch (error) {
     shouldReconnect = false;
     setConnectedControls(false);
+    setStatus("error");
+    setMessage("Mikrofonåtkomst nekades eller misslyckades.", true);
+  }
+}
+
+async function testMicrophone() {
+  try {
+    await getLocalAudioStream();
+    setMessage("Mikrofontest aktivt.");
+  } catch (error) {
     setStatus("error");
     setMessage("Mikrofonåtkomst nekades eller misslyckades.", true);
   }
@@ -361,6 +499,7 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
   setConnectedControls(false);
   setStatus(finalStatus);
   setMessage(finalMessage, isError);
+  refreshOpenRooms();
 }
 
 joinForm.addEventListener("submit", async (event) => {
@@ -373,7 +512,7 @@ joinForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  await connect(roomCode);
+  await connect(roomCode, roomPasswordInput.value);
 });
 
 leaveButton.addEventListener("click", () => disconnect(true));
@@ -381,6 +520,16 @@ leaveButton.addEventListener("click", () => disconnect(true));
 refreshDevicesButton.addEventListener("click", async () => {
   await refreshDevices();
 });
+
+testMicrophoneButton.addEventListener("click", testMicrophone);
+
+microphoneSelect.addEventListener("change", () => {
+  if (localStream && !shouldReconnect) {
+    getLocalAudioStream();
+  }
+});
+
+refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
 volumeSlider.addEventListener("input", () => {
   const volume = Number(volumeSlider.value);
@@ -397,6 +546,13 @@ if (!("mediaDevices" in navigator) || !("RTCPeerConnection" in window)) {
   setMessage("Din webbläsare saknar stöd för WebRTC eller mikrofonåtkomst.", true);
   setConnectedControls(false);
   joinButton.disabled = true;
+  testMicrophoneButton.disabled = true;
 } else {
   refreshDevices();
+  refreshOpenRooms();
+  window.setInterval(() => {
+    if (!shouldReconnect) {
+      refreshOpenRooms();
+    }
+  }, 5000);
 }
