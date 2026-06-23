@@ -3,10 +3,14 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<RoomRegistry>();
+builder.Services.AddSignalR();
+
 var app = builder.Build();
-var rooms = new RoomRegistry();
+var rooms = app.Services.GetRequiredService<RoomRegistry>();
 var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
 {
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -39,6 +43,7 @@ app.Map("/ws", async context =>
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/api/open-rooms", () => Results.Ok(rooms.GetOpenRooms()));
+app.MapHub<ChatHub>("/chatHub");
 
 app.Run();
 
@@ -229,6 +234,36 @@ sealed class RoomRegistry
         return openRooms;
     }
 
+    public bool CanJoinChat(string? roomCode, string? password, out string normalizedRoomCode)
+    {
+        normalizedRoomCode = "";
+        var normalized = NormalizeRoomCode(roomCode);
+        var normalizedPassword = NormalizePassword(password);
+
+        if (normalized is null || !_rooms.TryGetValue(normalized, out var room))
+        {
+            return false;
+        }
+
+        lock (room.SyncRoot)
+        {
+            room.RemoveClosedConnections();
+
+            if (room.Participants.Count == 0)
+            {
+                return false;
+            }
+
+            if (!room.PasswordMatches(normalizedPassword))
+            {
+                return false;
+            }
+
+            normalizedRoomCode = normalized;
+            return true;
+        }
+    }
+
     public async Task ForwardToPeerAsync(
         ClientConnection connection,
         ClientMessage message,
@@ -346,6 +381,50 @@ sealed class RoomRegistry
     }
 }
 
+sealed class ChatHub(RoomRegistry rooms) : Hub
+{
+    private const int MaxMessageLength = 500;
+
+    public async Task JoinRoom(string roomCode, string? password)
+    {
+        if (!rooms.CanJoinChat(roomCode, password, out var normalizedRoomCode))
+        {
+            throw new HubException("Kunde inte ansluta chatten till rummet.");
+        }
+
+        Context.Items["RoomCode"] = normalizedRoomCode;
+        await Groups.AddToGroupAsync(Context.ConnectionId, ChatGroupName(normalizedRoomCode));
+    }
+
+    public async Task SendMessage(string message)
+    {
+        if (!Context.Items.TryGetValue("RoomCode", out var value) || value is not string roomCode)
+        {
+            throw new HubException("Chatten är inte ansluten till ett rum.");
+        }
+
+        var normalizedMessage = (message ?? "").Trim();
+        if (normalizedMessage.Length == 0)
+        {
+            return;
+        }
+
+        if (normalizedMessage.Length > MaxMessageLength)
+        {
+            normalizedMessage = normalizedMessage[..MaxMessageLength];
+        }
+
+        await Clients.Group(ChatGroupName(roomCode)).SendAsync(
+            "ReceiveMessage",
+            new ChatMessage(Context.ConnectionId, normalizedMessage, DateTimeOffset.UtcNow));
+    }
+
+    private static string ChatGroupName(string roomCode)
+    {
+        return $"room:{roomCode}";
+    }
+}
+
 sealed class Room(string code, string? password)
 {
     public string Code { get; } = code;
@@ -427,6 +506,8 @@ sealed record ClientMessage(
 sealed record OpenRoom(string RoomCode, string Name, int ParticipantCount);
 
 sealed record PeerInfo(string PeerId);
+
+sealed record ChatMessage(string SenderId, string Text, DateTimeOffset SentAt);
 
 sealed record ServerMessage(
     string Type,

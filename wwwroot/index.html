@@ -6,7 +6,7 @@
   <title>SnickSnack</title>
   <link rel="icon" type="image/png" href="/assets/snicksnackfavicon.png">
   <link rel="apple-touch-icon" href="/assets/snicksnackfavicon.png">
-  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-2">
+  <link rel="stylesheet" href="/styles.css?v=snicksnack-room-4">
 </head>
 <body>
   <main class="app-shell" id="appShell">
@@ -119,14 +119,52 @@
         </div>
       </section>
 
+      <section class="music-panel" aria-label="Musik från datorn">
+        <button id="musicToggleButton" type="button" class="secondary music-toggle" aria-expanded="false" aria-controls="musicControls">Spela musik</button>
+
+        <div id="musicControls" class="music-controls" hidden>
+          <label for="musicInputSelect">Musikingång</label>
+          <div class="inline-row device-row">
+            <select id="musicInputSelect" name="musicInputSelect"></select>
+            <button id="startMusicButton" type="button" class="secondary compact-button">Starta</button>
+            <button id="refreshMusicDevicesButton" type="button" class="icon-button" title="Uppdatera musikingångar" aria-label="Uppdatera musikingångar">↻</button>
+          </div>
+
+          <div class="music-action-row">
+            <button id="stopMusicButton" type="button" class="secondary" disabled>Stoppa musik</button>
+            <span id="musicStatusText">Ingen musik streamas</span>
+          </div>
+
+          <p id="musicLevelLabel" class="field-label">Musiknivå</p>
+          <div id="musicLevelMeter" class="level-meter" role="meter" aria-labelledby="musicLevelLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="musicLevelBar"></span>
+          </div>
+        </div>
+      </section>
+
       <label for="volumeSlider">Volym för alla du pratar med <span id="volumeValue">100%</span></label>
       <input id="volumeSlider" type="range" min="0" max="100" value="100">
+
+      <section class="chat-panel" aria-label="Textchatt">
+        <div class="section-title-row">
+          <h3>Chat</h3>
+          <span id="chatStatusText">Inte ansluten</span>
+        </div>
+
+        <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" type="text" maxlength="500" autocomplete="off" placeholder="Skriv ett meddelande">
+          <button id="chatSendButton" type="submit">Skicka</button>
+        </form>
+      </section>
 
       <div id="remoteAudioContainer" aria-hidden="true"></div>
       <p id="messageText" class="message" aria-live="polite"></p>
     </section>
   </main>
 
-  <script src="/app.js?v=snicksnack-room-2" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+  <script src="/app.js?v=snicksnack-room-4" defer></script>
 </body>
 </html>

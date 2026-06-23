@@ -18,6 +18,20 @@ const roomInputLevelBar = document.querySelector("#roomInputLevelBar");
 const roomInputLevelMeter = document.querySelector("#roomInputLevelMeter");
 const remoteParticipantsList = document.querySelector("#remoteParticipantsList");
 const participantCountText = document.querySelector("#participantCountText");
+const musicToggleButton = document.querySelector("#musicToggleButton");
+const musicControls = document.querySelector("#musicControls");
+const musicInputSelect = document.querySelector("#musicInputSelect");
+const refreshMusicDevicesButton = document.querySelector("#refreshMusicDevicesButton");
+const startMusicButton = document.querySelector("#startMusicButton");
+const stopMusicButton = document.querySelector("#stopMusicButton");
+const musicStatusText = document.querySelector("#musicStatusText");
+const musicLevelBar = document.querySelector("#musicLevelBar");
+const musicLevelMeter = document.querySelector("#musicLevelMeter");
+const chatStatusText = document.querySelector("#chatStatusText");
+const chatMessages = document.querySelector("#chatMessages");
+const chatForm = document.querySelector("#chatForm");
+const chatInput = document.querySelector("#chatInput");
+const chatSendButton = document.querySelector("#chatSendButton");
 const openRoomsList = document.querySelector("#openRoomsList");
 const openRoomsEmpty = document.querySelector("#openRoomsEmpty");
 const refreshRoomsButton = document.querySelector("#refreshRoomsButton");
@@ -29,6 +43,7 @@ const lobbyMessageText = document.querySelector("#lobbyMessageText");
 
 const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
+const messageSoundUrl = "/assets/duck.mp3";
 
 let ws = null;
 let ownPeerId = "";
@@ -43,6 +58,18 @@ let analyser = null;
 let meterSource = null;
 let meterFrame = null;
 let meterData = null;
+let musicStream = null;
+let musicMixContext = null;
+let musicMicSource = null;
+let musicSource = null;
+let musicAnalyser = null;
+let musicGain = null;
+let musicDestination = null;
+let musicMeterFrame = null;
+let musicMeterData = null;
+let mixedAudioTrack = null;
+let isStoppingMusic = false;
+let chatConnection = null;
 const peerConnections = new Map();
 const pendingIceCandidates = new Map();
 const remoteAudioElements = new Map();
@@ -147,6 +174,37 @@ async function refreshDevices() {
   }
 }
 
+async function refreshMusicDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const audioInputs = devices.filter((device) => device.kind === "audioinput");
+    const currentValue = musicInputSelect.value;
+
+    musicInputSelect.innerHTML = "";
+
+    if (audioInputs.length === 0) {
+      musicInputSelect.dataset.hasDevices = "false";
+      musicInputSelect.append(new Option("Ingen ljudingång hittades", ""));
+      startMusicButton.disabled = true;
+      return;
+    }
+
+    musicInputSelect.dataset.hasDevices = "true";
+    audioInputs.forEach((device, index) => {
+      const label = device.label || (index === 0 ? "Standardljudingång" : `Ljudingång ${index + 1}`);
+      musicInputSelect.append(new Option(label, device.deviceId));
+    });
+
+    if ([...musicInputSelect.options].some((option) => option.value === currentValue)) {
+      musicInputSelect.value = currentValue;
+    }
+
+    startMusicButton.disabled = Boolean(musicStream);
+  } catch (error) {
+    setMessage("Kunde inte läsa musikingångar.", true);
+  }
+}
+
 function selectedDeviceMatchesCurrentStream() {
   const track = localStream?.getAudioTracks()[0];
 
@@ -167,6 +225,18 @@ function audioConstraints(deviceId) {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true
+    },
+    video: false
+  };
+}
+
+function musicAudioConstraints(deviceId) {
+  return {
+    audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
     },
     video: false
   };
@@ -213,6 +283,7 @@ async function getLocalAudioStream() {
   }
 
   await refreshDevices();
+  await refreshMusicDevices();
   startInputMeter(localStream);
   return localStream;
 }
@@ -273,6 +344,302 @@ function stopInputMeter() {
   }
 }
 
+function getLocalAudioTrack() {
+  return localStream?.getAudioTracks()[0] || null;
+}
+
+function getOutgoingAudioTrack() {
+  return mixedAudioTrack || getLocalAudioTrack();
+}
+
+function getOutgoingAudioStream() {
+  return musicDestination?.stream || localStream;
+}
+
+async function replaceOutgoingAudioTrack(track) {
+  await Promise.all([...peerConnections.values()].map(async (peerConnection) => {
+    const sender = peerConnection.getSenders().find((candidate) => candidate.track?.kind === "audio");
+    if (sender) {
+      await sender.replaceTrack(track);
+    }
+  }));
+}
+
+function setMusicControls(isPlaying) {
+  startMusicButton.disabled = isPlaying || musicInputSelect.dataset.hasDevices !== "true";
+  musicInputSelect.disabled = isPlaying;
+  refreshMusicDevicesButton.disabled = isPlaying;
+  stopMusicButton.disabled = !isPlaying;
+}
+
+function stopMusicMeter() {
+  if (musicMeterFrame) {
+    window.cancelAnimationFrame(musicMeterFrame);
+    musicMeterFrame = null;
+  }
+
+  setMeterLevel(musicLevelBar, musicLevelMeter, 0);
+  musicMeterData = null;
+}
+
+function cleanupMusicMix() {
+  stopMusicMeter();
+
+  musicMicSource?.disconnect();
+  musicSource?.disconnect();
+  musicAnalyser?.disconnect();
+  musicGain?.disconnect();
+
+  musicMicSource = null;
+  musicSource = null;
+  musicAnalyser = null;
+  musicGain = null;
+  musicDestination = null;
+
+  if (mixedAudioTrack) {
+    mixedAudioTrack.stop();
+    mixedAudioTrack = null;
+  }
+
+  if (musicStream) {
+    musicStream.getTracks().forEach((track) => track.stop());
+    musicStream = null;
+  }
+
+  const contextToClose = musicMixContext;
+  musicMixContext = null;
+
+  if (contextToClose && contextToClose.state !== "closed") {
+    contextToClose.close();
+  }
+}
+
+function startMusicMix(stream) {
+  cleanupMusicMix();
+
+  const microphoneTrack = getLocalAudioTrack();
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!microphoneTrack || !AudioContextCtor) {
+    throw new Error("Musikmix stöds inte i den här webbläsaren.");
+  }
+
+  musicStream = stream;
+  musicMixContext = new AudioContextCtor();
+  musicDestination = musicMixContext.createMediaStreamDestination();
+  musicMicSource = musicMixContext.createMediaStreamSource(new MediaStream([microphoneTrack]));
+  musicSource = musicMixContext.createMediaStreamSource(stream);
+  musicAnalyser = musicMixContext.createAnalyser();
+  musicGain = musicMixContext.createGain();
+
+  musicAnalyser.fftSize = 256;
+  musicAnalyser.smoothingTimeConstant = 0.72;
+  musicMeterData = new Uint8Array(musicAnalyser.fftSize);
+  musicGain.gain.value = 1;
+
+  musicMicSource.connect(musicDestination);
+  musicSource.connect(musicAnalyser);
+  musicAnalyser.connect(musicGain);
+  musicGain.connect(musicDestination);
+
+  mixedAudioTrack = musicDestination.stream.getAudioTracks()[0];
+  musicMixContext.resume?.().catch(() => {});
+
+  for (const track of stream.getAudioTracks()) {
+    track.addEventListener("ended", () => {
+      if (!isStoppingMusic) {
+        stopMusicSharing("Musikströmmen stoppades.");
+      }
+    });
+  }
+
+  const draw = () => {
+    if (!musicAnalyser || !musicMeterData) {
+      return;
+    }
+
+    musicAnalyser.getByteTimeDomainData(musicMeterData);
+
+    let sum = 0;
+    for (const sample of musicMeterData) {
+      const centered = (sample - 128) / 128;
+      sum += centered * centered;
+    }
+
+    const rms = Math.sqrt(sum / musicMeterData.length);
+    const level = Math.min(100, Math.round(rms * 260));
+    setMeterLevel(musicLevelBar, musicLevelMeter, level);
+    musicMeterFrame = window.requestAnimationFrame(draw);
+  };
+
+  draw();
+}
+
+async function startMusicSharing() {
+  if (musicStream) {
+    return;
+  }
+
+  if (!localStream) {
+    setMessage("Starta rummet först så mikrofonen finns i mixen.", true);
+    return;
+  }
+
+  setMessage("");
+  startMusicButton.disabled = true;
+  musicStatusText.textContent = "Startar musik...";
+
+  try {
+    const deviceId = musicInputSelect.value;
+    const stream = await navigator.mediaDevices.getUserMedia(musicAudioConstraints(deviceId));
+    startMusicMix(stream);
+
+    if (mixedAudioTrack) {
+      await replaceOutgoingAudioTrack(mixedAudioTrack);
+    }
+
+    await refreshMusicDevices();
+    setMusicControls(true);
+    musicStatusText.textContent = "Musik streamas";
+    setMessage("Musiken streamas från din valda ingång.");
+  } catch (error) {
+    cleanupMusicMix();
+    setMusicControls(false);
+    musicStatusText.textContent = "Ingen musik streamas";
+    setMessage(`Musikingången kunde inte startas${error?.name ? ` (${error.name})` : ""}.`, true);
+    console.error(error);
+  }
+}
+
+async function stopMusicSharing(musicText = "Ingen musik streamas") {
+  if (!musicStream && !mixedAudioTrack) {
+    musicStatusText.textContent = musicText;
+    setMusicControls(false);
+    return;
+  }
+
+  isStoppingMusic = true;
+  try {
+    const microphoneTrack = getLocalAudioTrack();
+    if (microphoneTrack) {
+      await replaceOutgoingAudioTrack(microphoneTrack);
+    }
+  } finally {
+    cleanupMusicMix();
+    isStoppingMusic = false;
+    setMusicControls(false);
+    musicStatusText.textContent = musicText;
+  }
+}
+
+function setChatControls(isConnected, status = "") {
+  chatInput.disabled = !isConnected;
+  chatSendButton.disabled = !isConnected;
+  chatStatusText.textContent = status || (isConnected ? "Ansluten" : "Inte ansluten");
+}
+
+function appendChatMessage(message, isOwn) {
+  const item = document.createElement("article");
+  item.className = `chat-message ${isOwn ? "own" : "incoming"}`;
+
+  const meta = document.createElement("span");
+  const sentAt = message.sentAt ? new Date(message.sentAt) : new Date();
+  const time = Number.isNaN(sentAt.getTime())
+    ? ""
+    : sentAt.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+  meta.textContent = `${isOwn ? "Du" : "Deltagare"}${time ? ` ${time}` : ""}`;
+
+  const text = document.createElement("p");
+  text.textContent = message.text || "";
+
+  item.append(meta, text);
+  chatMessages.append(item);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function playQuack() {
+  const sound = new Audio(messageSoundUrl);
+  sound.volume = 0.65;
+  sound.play().catch(() => {});
+}
+
+async function startChatConnection(roomCode) {
+  if (!window.signalR) {
+    setChatControls(false, "SignalR saknas");
+    return;
+  }
+
+  await stopChatConnection();
+  chatMessages.replaceChildren();
+  setChatControls(false, "Ansluter");
+
+  chatConnection = new signalR.HubConnectionBuilder()
+    .withUrl("/chatHub")
+    .withAutomaticReconnect()
+    .build();
+
+  chatConnection.on("ReceiveMessage", (message) => {
+    const isOwn = message.senderId === chatConnection?.connectionId;
+    appendChatMessage(message, isOwn);
+
+    if (!isOwn) {
+      playQuack();
+    }
+  });
+
+  chatConnection.onreconnecting(() => {
+    setChatControls(false, "Återansluter");
+  });
+
+  chatConnection.onreconnected(async () => {
+    try {
+      await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword);
+      setChatControls(true);
+    } catch (error) {
+      setChatControls(false, "Chatfel");
+      console.error(error);
+    }
+  });
+
+  chatConnection.onclose(() => {
+    setChatControls(false);
+  });
+
+  try {
+    await chatConnection.start();
+    await chatConnection.invoke("JoinRoom", roomCode, selectedRoomPassword);
+    setChatControls(true);
+  } catch (error) {
+    setChatControls(false, "Chatfel");
+    console.error(error);
+  }
+}
+
+async function stopChatConnection() {
+  const connection = chatConnection;
+  chatConnection = null;
+  setChatControls(false);
+
+  if (connection) {
+    await connection.stop().catch(() => {});
+  }
+}
+
+async function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text || !chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) {
+    return;
+  }
+
+  chatInput.value = "";
+
+  try {
+    await chatConnection.invoke("SendMessage", text);
+  } catch (error) {
+    setMessage("Kunde inte skicka chattmeddelandet.", true);
+    console.error(error);
+  }
+}
+
 function createPeerConnection(peerId) {
   if (peerConnections.has(peerId)) {
     return peerConnections.get(peerId);
@@ -282,9 +649,11 @@ function createPeerConnection(peerId) {
   peerConnections.set(peerId, peerConnection);
   getRemoteParticipant(peerId);
 
-  localStream?.getAudioTracks().forEach((track) => {
-    peerConnection.addTrack(track, localStream);
-  });
+  const outgoingTrack = getOutgoingAudioTrack();
+  const outgoingStream = getOutgoingAudioStream();
+  if (outgoingTrack && outgoingStream) {
+    peerConnection.addTrack(outgoingTrack, outgoingStream);
+  }
 
   peerConnection.onicecandidate = (event) => {
     if (!event.candidate) {
@@ -667,6 +1036,7 @@ function connectWebSocket() {
         case "joined-room":
           ownPeerId = message.peerId || "";
           showRoom(message.roomCode);
+          await startChatConnection(message.roomCode);
           setStatus(message.participantCount > 1 ? "connecting" : "waiting");
           setConnectedControls(true);
           setMessage(message.participantCount > 1 ? "Kopplar upp samtalet..." : "Du är inne. Väntar på fler deltagare.");
@@ -721,6 +1091,7 @@ function connectWebSocket() {
   ws.addEventListener("close", () => {
     ws = null;
     cleanupPeerConnections();
+    stopChatConnection();
 
     if (shouldReconnect) {
       setStatus("connecting", "Ansluter");
@@ -780,6 +1151,10 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
   ws?.close();
   ws = null;
   cleanupPeerConnections();
+  cleanupMusicMix();
+  setMusicControls(false);
+  musicStatusText.textContent = "Ingen musik streamas";
+  stopChatConnection();
   cleanupLocalStream();
   ownPeerId = "";
   setConnectedControls(false);
@@ -818,6 +1193,29 @@ microphoneSelect.addEventListener("change", () => {
 
 refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
+musicToggleButton.addEventListener("click", async () => {
+  const isExpanded = musicToggleButton.getAttribute("aria-expanded") === "true";
+  musicToggleButton.setAttribute("aria-expanded", String(!isExpanded));
+  musicControls.hidden = isExpanded;
+
+  if (isExpanded) {
+    return;
+  }
+
+  await refreshMusicDevices();
+});
+
+refreshMusicDevicesButton.addEventListener("click", refreshMusicDevices);
+startMusicButton.addEventListener("click", startMusicSharing);
+stopMusicButton.addEventListener("click", () => {
+  stopMusicSharing();
+});
+
+chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await sendChatMessage();
+});
+
 volumeSlider.addEventListener("input", () => {
   const volume = Number(volumeSlider.value);
   for (const participant of remoteParticipants.values()) {
@@ -832,14 +1230,20 @@ window.addEventListener("beforeunload", () => {
   sendSignal({ type: "leave-room" });
 });
 
+setChatControls(false);
+
 if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices) || !("RTCPeerConnection" in window)) {
   setStatus("error");
   setMessage("Din webbläsare saknar stöd för WebRTC eller mikrofonåtkomst.", true);
   setConnectedControls(false);
   joinButton.disabled = true;
   testMicrophoneButton.disabled = true;
+  musicToggleButton.disabled = true;
+  startMusicButton.disabled = true;
+  stopMusicButton.disabled = true;
 } else {
   refreshDevices();
+  refreshMusicDevices();
   refreshOpenRooms();
   window.setInterval(() => {
     if (!shouldReconnect) {
