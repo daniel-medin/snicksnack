@@ -98,10 +98,10 @@
         </div>
       </section>
 
-      <label for="volumeSlider">Volym för personen du pratar med <span id="volumeValue">100%</span></label>
+      <label for="volumeSlider">Volym för alla du pratar med <span id="volumeValue">100%</span></label>
       <input id="volumeSlider" type="range" min="0" max="100" value="100">
 
-      <audio id="remoteAudio" autoplay playsinline></audio>
+      <div id="remoteAudioContainer" aria-hidden="true"></div>
       <p id="messageText" class="message" aria-live="polite"></p>
     </section>
   </main>

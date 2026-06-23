@@ -6,7 +6,7 @@ Servern hanterar endast signaling: `join-room`, `offer`, `answer`, `ice-candidat
 
 ## Funktioner
 
-- Rumskod med max 2 deltagare per rum
+- Rumskod med max 8 deltagare per rum
 - Frivilligt lösenord när rummet skapas
 - Lista över öppna rum utan lösenord via `/api/open-rooms`
 - Tydliga statusar: inte ansluten, ansluter, väntar, ansluten, frånkopplad och fel

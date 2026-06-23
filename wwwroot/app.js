@@ -9,7 +9,7 @@ const leaveButton = document.querySelector("#leaveButton");
 const statusText = document.querySelector("#statusText");
 const statusDot = document.querySelector("#statusDot");
 const messageText = document.querySelector("#messageText");
-const remoteAudio = document.querySelector("#remoteAudio");
+const remoteAudioContainer = document.querySelector("#remoteAudioContainer");
 const volumeSlider = document.querySelector("#volumeSlider");
 const volumeValue = document.querySelector("#volumeValue");
 const inputLevelBar = document.querySelector("#inputLevelBar");
@@ -25,10 +25,9 @@ const lobbyMessageText = document.querySelector("#lobbyMessageText");
 
 const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
-const pendingIceCandidates = [];
 
 let ws = null;
-let pc = null;
+let ownPeerId = "";
 let localStream = null;
 let selectedRoomCode = "";
 let selectedRoomPassword = "";
@@ -40,6 +39,9 @@ let analyser = null;
 let meterSource = null;
 let meterFrame = null;
 let meterData = null;
+const peerConnections = new Map();
+const pendingIceCandidates = new Map();
+const remoteAudioElements = new Map();
 
 const rtcConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -255,62 +257,94 @@ function stopInputMeter() {
   }
 }
 
-function createPeerConnection() {
-  if (pc) {
-    return pc;
+function createPeerConnection(peerId) {
+  if (peerConnections.has(peerId)) {
+    return peerConnections.get(peerId);
   }
 
-  pc = new RTCPeerConnection(rtcConfiguration);
+  const peerConnection = new RTCPeerConnection(rtcConfiguration);
+  peerConnections.set(peerId, peerConnection);
 
   localStream?.getAudioTracks().forEach((track) => {
-    pc.addTrack(track, localStream);
+    peerConnection.addTrack(track, localStream);
   });
 
-  pc.onicecandidate = (event) => {
+  peerConnection.onicecandidate = (event) => {
     if (!event.candidate) {
       return;
     }
 
     sendSignal({
       type: "ice-candidate",
+      peerId,
       candidate: event.candidate.candidate,
       sdpMid: event.candidate.sdpMid,
       sdpMLineIndex: event.candidate.sdpMLineIndex
     });
   };
 
-  pc.ontrack = (event) => {
+  peerConnection.ontrack = (event) => {
     const [remoteStream] = event.streams;
-    remoteAudio.srcObject = remoteStream;
+    const audio = getRemoteAudioElement(peerId);
+    audio.srcObject = remoteStream;
   };
 
-  pc.onconnectionstatechange = () => {
-    if (pc?.connectionState === "connected") {
+  peerConnection.onconnectionstatechange = () => {
+    if ([...peerConnections.values()].some((connection) => connection.connectionState === "connected")) {
       setStatus("connected");
       setMessage("");
     }
 
-    if (["failed", "disconnected", "closed"].includes(pc?.connectionState)) {
-      if (shouldReconnect) {
-        setStatus("waiting");
-      }
+    if (["failed", "disconnected", "closed"].includes(peerConnection.connectionState) && shouldReconnect) {
+      setStatus("waiting");
     }
   };
 
-  return pc;
+  return peerConnection;
 }
 
-function cleanupPeerConnection() {
-  pendingIceCandidates.length = 0;
-  remoteAudio.srcObject = null;
-
-  if (pc) {
-    pc.onicecandidate = null;
-    pc.ontrack = null;
-    pc.onconnectionstatechange = null;
-    pc.close();
-    pc = null;
+function getRemoteAudioElement(peerId) {
+  if (remoteAudioElements.has(peerId)) {
+    return remoteAudioElements.get(peerId);
   }
+
+  const audio = document.createElement("audio");
+  audio.autoplay = true;
+  audio.playsInline = true;
+  audio.volume = Number(volumeSlider.value) / 100;
+  remoteAudioElements.set(peerId, audio);
+  remoteAudioContainer.append(audio);
+  return audio;
+}
+
+function cleanupPeerConnection(peerId) {
+  const peerConnection = peerConnections.get(peerId);
+  pendingIceCandidates.delete(peerId);
+
+  if (peerConnection) {
+    peerConnection.onicecandidate = null;
+    peerConnection.ontrack = null;
+    peerConnection.onconnectionstatechange = null;
+    peerConnection.close();
+    peerConnections.delete(peerId);
+  }
+
+  const audio = remoteAudioElements.get(peerId);
+  if (audio) {
+    audio.srcObject = null;
+    audio.remove();
+    remoteAudioElements.delete(peerId);
+  }
+}
+
+function cleanupPeerConnections() {
+  for (const peerId of [...peerConnections.keys()]) {
+    cleanupPeerConnection(peerId);
+  }
+
+  pendingIceCandidates.clear();
+  remoteAudioContainer.replaceChildren();
+  remoteAudioElements.clear();
 }
 
 function cleanupLocalStream() {
@@ -322,53 +356,62 @@ function cleanupLocalStream() {
   }
 }
 
-async function flushPendingIceCandidates() {
-  if (!pc?.remoteDescription) {
+async function flushPendingIceCandidates(peerId) {
+  const peerConnection = peerConnections.get(peerId);
+  if (!peerConnection?.remoteDescription) {
     return;
   }
 
-  while (pendingIceCandidates.length > 0) {
-    await pc.addIceCandidate(pendingIceCandidates.shift());
+  const candidates = pendingIceCandidates.get(peerId) || [];
+  while (candidates.length > 0) {
+    await peerConnection.addIceCandidate(candidates.shift());
   }
 }
 
-async function createAndSendOffer() {
-  const peerConnection = createPeerConnection();
+async function createAndSendOffer(peerId) {
+  const peerConnection = createPeerConnection(peerId);
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
-  sendSignal({ type: "offer", sdp: offer.sdp });
+  sendSignal({ type: "offer", peerId, sdp: offer.sdp });
 }
 
 async function handleOffer(message) {
-  const peerConnection = createPeerConnection();
+  const peerId = message.peerId;
+  const peerConnection = createPeerConnection(peerId);
   await peerConnection.setRemoteDescription({ type: "offer", sdp: message.sdp });
-  await flushPendingIceCandidates();
+  await flushPendingIceCandidates(peerId);
 
   const answer = await peerConnection.createAnswer();
   await peerConnection.setLocalDescription(answer);
-  sendSignal({ type: "answer", sdp: answer.sdp });
+  sendSignal({ type: "answer", peerId, sdp: answer.sdp });
 }
 
 async function handleAnswer(message) {
-  if (!pc) {
+  const peerId = message.peerId;
+  const peerConnection = peerConnections.get(peerId);
+  if (!peerConnection) {
     return;
   }
 
-  await pc.setRemoteDescription({ type: "answer", sdp: message.sdp });
-  await flushPendingIceCandidates();
+  await peerConnection.setRemoteDescription({ type: "answer", sdp: message.sdp });
+  await flushPendingIceCandidates(peerId);
 }
 
 async function handleIceCandidate(message) {
+  const peerId = message.peerId;
   const candidate = new RTCIceCandidate({
     candidate: message.candidate,
     sdpMid: message.sdpMid,
     sdpMLineIndex: message.sdpMLineIndex
   });
 
-  if (pc?.remoteDescription) {
-    await pc.addIceCandidate(candidate);
+  const peerConnection = peerConnections.get(peerId);
+  if (peerConnection?.remoteDescription) {
+    await peerConnection.addIceCandidate(candidate);
   } else {
-    pendingIceCandidates.push(candidate);
+    const candidates = pendingIceCandidates.get(peerId) || [];
+    candidates.push(candidate);
+    pendingIceCandidates.set(peerId, candidates);
   }
 }
 
@@ -400,7 +443,7 @@ function renderOpenRooms(rooms) {
     button.disabled = shouldReconnect;
     button.innerHTML = `<strong></strong><span></span>`;
     button.querySelector("strong").textContent = room.name || room.roomCode;
-    button.querySelector("span").textContent = `${room.participantCount}/2`;
+    button.querySelector("span").textContent = `${room.participantCount}/8`;
     button.addEventListener("click", async () => {
       roomCodeInput.value = room.roomCode;
       roomPasswordInput.value = "";
@@ -448,20 +491,21 @@ function connectWebSocket() {
     try {
       switch (message.type) {
         case "joined-room":
+          ownPeerId = message.peerId || "";
           showRoom(message.roomCode);
-          setStatus(message.participantCount === 2 ? "connecting" : "waiting");
+          setStatus(message.participantCount > 1 ? "connecting" : "waiting");
           setConnectedControls(true);
-          setMessage(message.participantCount === 2 ? "Kopplar upp samtalet..." : "Du är inne. Väntar på en deltagare till.");
+          setMessage(message.participantCount > 1 ? "Kopplar upp samtalet..." : "Du är inne. Väntar på fler deltagare.");
+          for (const peer of message.peers || []) {
+            await createAndSendOffer(peer.peerId);
+          }
           await refreshOpenRooms();
           break;
 
         case "peer-joined":
           setStatus("connecting");
-          cleanupPeerConnection();
-          createPeerConnection();
-          if (message.initiator) {
-            await createAndSendOffer();
-          }
+          createPeerConnection(message.peerId);
+          setMessage("En deltagare anslöt. Kopplar upp samtalet...");
           break;
 
         case "offer":
@@ -477,9 +521,11 @@ function connectWebSocket() {
           break;
 
         case "leave-room":
-          cleanupPeerConnection();
-          setStatus("waiting");
-          setMessage("Den andra deltagaren lämnade rummet.");
+          cleanupPeerConnection(message.peerId);
+          if (peerConnections.size === 0) {
+            setStatus("waiting");
+            setMessage("Du är kvar i rummet. Väntar på fler deltagare.");
+          }
           await refreshOpenRooms();
           break;
 
@@ -500,7 +546,7 @@ function connectWebSocket() {
 
   ws.addEventListener("close", () => {
     ws = null;
-    cleanupPeerConnection();
+    cleanupPeerConnections();
 
     if (shouldReconnect) {
       setStatus("connecting", "Ansluter");
@@ -559,8 +605,9 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
 
   ws?.close();
   ws = null;
-  cleanupPeerConnection();
+  cleanupPeerConnections();
   cleanupLocalStream();
+  ownPeerId = "";
   setConnectedControls(false);
   showLobby();
   setStatus(finalStatus);
@@ -599,7 +646,9 @@ refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
 volumeSlider.addEventListener("input", () => {
   const volume = Number(volumeSlider.value);
-  remoteAudio.volume = volume / 100;
+  for (const audio of remoteAudioElements.values()) {
+    audio.volume = volume / 100;
+  }
   volumeValue.textContent = `${volume}%`;
 });
 

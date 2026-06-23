@@ -128,6 +128,7 @@ static async Task ReceiveLoopAsync(
 
 sealed class RoomRegistry
 {
+    private const int MaxParticipants = 8;
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task JoinAsync(
@@ -152,7 +153,7 @@ sealed class RoomRegistry
         }
 
         var room = _rooms.GetOrAdd(normalizedRoomCode, code => new Room(code, normalizedPassword));
-        ClientConnection? waitingPeer = null;
+        List<ClientConnection> existingPeers = [];
         var joined = false;
         var participantCount = 0;
         var passwordRejected = false;
@@ -165,9 +166,9 @@ sealed class RoomRegistry
             {
                 passwordRejected = true;
             }
-            else if (room.Participants.Count < 2)
+            else if (room.Participants.Count < MaxParticipants)
             {
-                waitingPeer = room.Participants.FirstOrDefault();
+                existingPeers = room.Participants.ToList();
                 room.Participants.Add(connection);
                 connection.RoomCode = normalizedRoomCode;
                 joined = true;
@@ -183,21 +184,28 @@ sealed class RoomRegistry
 
         if (!joined)
         {
-            await SocketSender.SendAsync(connection, "error", "Rummet är fullt. Max 2 deltagare kan vara anslutna.", jsonOptions, cancellationToken);
+            await SocketSender.SendAsync(connection, "error", $"Rummet är fullt. Max {MaxParticipants} deltagare kan vara anslutna.", jsonOptions, cancellationToken);
             return;
         }
 
         await SocketSender.SendAsync(
             connection,
-            new ServerMessage(Type: "joined-room", RoomCode: normalizedRoomCode, ParticipantCount: participantCount),
+            new ServerMessage(
+                Type: "joined-room",
+                RoomCode: normalizedRoomCode,
+                ParticipantCount: participantCount,
+                PeerId: connection.Id,
+                Peers: existingPeers.Select(peer => new PeerInfo(peer.Id)).ToArray()),
             jsonOptions,
             cancellationToken);
 
-        if (waitingPeer is not null)
+        foreach (var peer in existingPeers)
         {
-            // The waiting peer creates the offer so only one side starts negotiation.
-            await SocketSender.SendAsync(waitingPeer, new ServerMessage(Type: "peer-joined", Initiator: true), jsonOptions, cancellationToken);
-            await SocketSender.SendAsync(connection, new ServerMessage(Type: "peer-joined", Initiator: false), jsonOptions, cancellationToken);
+            await SocketSender.SendAsync(
+                peer,
+                new ServerMessage(Type: "peer-joined", PeerId: connection.Id, ParticipantCount: participantCount),
+                jsonOptions,
+                cancellationToken);
         }
     }
 
@@ -211,7 +219,7 @@ sealed class RoomRegistry
             {
                 room.RemoveClosedConnections();
 
-                if (!room.HasPassword && room.Participants.Count is > 0 and < 2)
+                if (!room.HasPassword && room.Participants.Count is > 0 && room.Participants.Count < MaxParticipants)
                 {
                     openRooms.Add(new OpenRoom(room.Code, room.Code, room.Participants.Count));
                 }
@@ -227,7 +235,13 @@ sealed class RoomRegistry
         JsonSerializerOptions jsonOptions,
         CancellationToken cancellationToken)
     {
-        var peer = FindPeer(connection);
+        if (string.IsNullOrWhiteSpace(message.PeerId))
+        {
+            await SocketSender.SendAsync(connection, "error", "Meddelandet saknar mottagare.", jsonOptions, cancellationToken);
+            return;
+        }
+
+        var peer = FindPeer(connection, message.PeerId);
 
         if (peer is null)
         {
@@ -239,6 +253,7 @@ sealed class RoomRegistry
             peer,
             new ServerMessage(
                 Type: message.Type,
+                PeerId: connection.Id,
                 Sdp: message.Sdp,
                 Candidate: message.Candidate,
                 SdpMid: message.SdpMid,
@@ -259,18 +274,20 @@ sealed class RoomRegistry
             return;
         }
 
-        ClientConnection? peer = null;
+        List<ClientConnection> peers = [];
+        var participantCount = 0;
         var removeRoom = false;
 
         lock (room.SyncRoot)
         {
             if (room.Participants.Remove(connection))
             {
-                peer = room.Participants.FirstOrDefault();
+                peers = room.Participants.ToList();
             }
 
             connection.RoomCode = null;
             room.RemoveClosedConnections();
+            participantCount = room.Participants.Count;
             removeRoom = room.Participants.Count == 0;
         }
 
@@ -279,13 +296,17 @@ sealed class RoomRegistry
             _rooms.TryRemove(roomCode, out _);
         }
 
-        if (peer is not null)
+        foreach (var peer in peers)
         {
-            await SocketSender.SendAsync(peer, new ServerMessage(Type: "leave-room"), jsonOptions, cancellationToken);
+            await SocketSender.SendAsync(
+                peer,
+                new ServerMessage(Type: "leave-room", PeerId: connection.Id, ParticipantCount: participantCount),
+                jsonOptions,
+                cancellationToken);
         }
     }
 
-    private ClientConnection? FindPeer(ClientConnection connection)
+    private ClientConnection? FindPeer(ClientConnection connection, string peerId)
     {
         var roomCode = connection.RoomCode;
 
@@ -296,7 +317,7 @@ sealed class RoomRegistry
 
         lock (room.SyncRoot)
         {
-            return room.Participants.FirstOrDefault(participant => participant.Id != connection.Id);
+            return room.Participants.FirstOrDefault(participant => participant.Id == peerId && participant.Id != connection.Id);
         }
     }
 
@@ -397,6 +418,7 @@ sealed record ClientMessage(
     string Type,
     string? RoomCode = null,
     string? Password = null,
+    string? PeerId = null,
     string? Sdp = null,
     string? Candidate = null,
     string? SdpMid = null,
@@ -404,12 +426,15 @@ sealed record ClientMessage(
 
 sealed record OpenRoom(string RoomCode, string Name, int ParticipantCount);
 
+sealed record PeerInfo(string PeerId);
+
 sealed record ServerMessage(
     string Type,
     string? Message = null,
     string? RoomCode = null,
     int? ParticipantCount = null,
-    bool? Initiator = null,
+    string? PeerId = null,
+    IReadOnlyList<PeerInfo>? Peers = null,
     string? Sdp = null,
     string? Candidate = null,
     string? SdpMid = null,
