@@ -7,7 +7,10 @@ using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<RoomRegistry>();
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    options.MaximumReceiveMessageSize = 512 * 1024; // 512 KB
+});
 
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<RoomRegistry>();
@@ -418,7 +421,7 @@ sealed class RoomRegistry
 
 sealed class ChatHub(RoomRegistry rooms) : Hub
 {
-    private const int MaxMessageLength = 500;
+    private const int MaxMessageLength = 400_000; // ~300 KB base64-bild
 
     public async Task JoinRoom(string roomCode, string? password, string? displayName)
     {

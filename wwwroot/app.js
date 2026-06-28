@@ -33,6 +33,8 @@ const chatMessages = document.querySelector("#chatMessages");
 const chatForm = document.querySelector("#chatForm");
 const chatInput = document.querySelector("#chatInput");
 const chatSendButton = document.querySelector("#chatSendButton");
+const chatImagePreview = document.querySelector("#chatImagePreview");
+let pendingImage = null;
 const openRoomsList = document.querySelector("#openRoomsList");
 const openRoomsEmpty = document.querySelector("#openRoomsEmpty");
 const refreshRoomsButton = document.querySelector("#refreshRoomsButton");
@@ -81,6 +83,14 @@ let remoteParticipantCounter = 0;
 const rtcConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
+
+if (window.marked) {
+  const renderer = new marked.Renderer();
+  const _link = renderer.link.bind(renderer);
+  renderer.link = (href, title, text) =>
+    _link(href, title, text).replace('<a ', '<a target="_blank" rel="noopener noreferrer" ');
+  marked.use({ renderer, breaks: true, gfm: true });
+}
 
 const statuses = {
   idle: "Inte ansluten",
@@ -567,7 +577,12 @@ function appendChatMessage(message, isOwn) {
   meta.textContent = `${isOwn ? "Du" : (message.senderName || "Deltagare")}${time ? ` ${time}` : ""}`;
 
   const text = document.createElement("p");
-  text.textContent = message.text || "";
+  const raw = message.text || "";
+  if (window.marked && window.DOMPurify) {
+    text.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+  } else {
+    text.textContent = raw;
+  }
 
   item.append(meta, text);
   chatMessages.append(item);
@@ -644,18 +659,39 @@ async function stopChatConnection() {
 
 async function sendChatMessage() {
   const text = chatInput.value.trim();
-  if (!text || !chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) {
-    return;
-  }
+  const image = pendingImage;
+  if (!text && !image) return;
+  if (!chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) return;
+
+  const imageMarkdown = image ? `![bild](${image})` : "";
+  const message = [text, imageMarkdown].filter(Boolean).join("\n\n");
 
   chatInput.value = "";
+  clearChatImagePreview();
 
   try {
-    await chatConnection.invoke("SendMessage", text);
+    await chatConnection.invoke("SendMessage", message);
   } catch (error) {
     setMessage("Kunde inte skicka chattmeddelandet.", true);
     console.error(error);
   }
+}
+
+function showChatImagePreview(dataUrl) {
+  const thumb = document.createElement("img");
+  thumb.src = dataUrl;
+  thumb.alt = "Bild att skicka";
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "remove-image-btn";
+  removeBtn.textContent = "✕";
+  removeBtn.addEventListener("click", clearChatImagePreview);
+  chatImagePreview.replaceChildren(thumb, removeBtn);
+}
+
+function clearChatImagePreview() {
+  pendingImage = null;
+  chatImagePreview.replaceChildren();
 }
 
 function createPeerConnection(peerId) {
@@ -1267,6 +1303,40 @@ stopMusicButton.addEventListener("click", () => {
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await sendChatMessage();
+});
+
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+
+chatInput.addEventListener("paste", (e) => {
+  const items = [...(e.clipboardData?.items ?? [])];
+  const imageItem = items.find(i => i.type.startsWith("image/"));
+  if (!imageItem) return;
+  e.preventDefault();
+  const file = imageItem.getAsFile();
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSize = 800;
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) { height = Math.round(height * maxSize / width); width = maxSize; }
+        else { width = Math.round(width * maxSize / height); height = maxSize; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      pendingImage = canvas.toDataURL("image/jpeg", 0.72);
+      showChatImagePreview(pendingImage);
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
 });
 
 volumeSlider.addEventListener("input", () => {
