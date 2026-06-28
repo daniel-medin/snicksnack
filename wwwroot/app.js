@@ -560,7 +560,7 @@ async function stopMusicSharing(musicText = "Ingen musik streamas") {
 }
 
 function setChatControls(isConnected, status = "") {
-  chatInput.disabled = !isConnected;
+  chatInput.contentEditable = isConnected ? "true" : "false";
   chatSendButton.disabled = !isConnected;
   chatStatusText.textContent = status || (isConnected ? "Ansluten" : "Inte ansluten");
 }
@@ -658,7 +658,7 @@ async function stopChatConnection() {
 }
 
 async function sendChatMessage() {
-  const text = chatInput.value.trim();
+  const text = chatInput.innerHTML.trim();
   const image = pendingImage;
   if (!text && !image) return;
   if (!chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) return;
@@ -666,7 +666,7 @@ async function sendChatMessage() {
   const imageMarkdown = image ? `![bild](${image})` : "";
   const message = [text, imageMarkdown].filter(Boolean).join("\n\n");
 
-  chatInput.value = "";
+  chatInput.innerHTML = "";
   clearChatImagePreview();
 
   try {
@@ -1315,28 +1315,31 @@ chatInput.addEventListener("keydown", (e) => {
 chatInput.addEventListener("paste", (e) => {
   const items = [...(e.clipboardData?.items ?? [])];
   const imageItem = items.find(i => i.type.startsWith("image/"));
-  if (!imageItem) return;
-  e.preventDefault();
-  const file = imageItem.getAsFile();
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = new Image();
-    img.onload = () => {
-      const maxSize = 800;
-      let { width, height } = img;
-      if (width > maxSize || height > maxSize) {
-        if (width > height) { height = Math.round(height * maxSize / width); width = maxSize; }
-        else { width = Math.round(width * maxSize / height); height = maxSize; }
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width; canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      pendingImage = canvas.toDataURL("image/jpeg", 0.72);
-      showChatImagePreview(pendingImage);
+  if (imageItem) {
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSize = 800;
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          if (width > height) { height = Math.round(height * maxSize / width); width = maxSize; }
+          else { width = Math.round(width * maxSize / height); height = maxSize; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        pendingImage = canvas.toDataURL("image/jpeg", 0.72);
+        showChatImagePreview(pendingImage);
+      };
+      img.src = ev.target.result;
     };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
+    reader.readAsDataURL(file);
+    return;
+  }
+
 });
 
 volumeSlider.addEventListener("input", () => {

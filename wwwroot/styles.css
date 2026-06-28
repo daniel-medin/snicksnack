@@ -25,6 +25,7 @@ body {
   margin: 0;
   display: grid;
   place-items: center;
+  place-content: center;
   background:
     radial-gradient(circle at 14% 8%, rgba(255, 213, 128, 0.42), transparent 28%),
     radial-gradient(circle at 84% 84%, rgba(242, 138, 0, 0.16), transparent 32%),
@@ -48,9 +49,18 @@ select {
 }
 
 .app-shell.in-room {
-  width: min(1180px, calc(100vw - 32px));
-  grid-template-columns: minmax(500px, 0.95fr) minmax(360px, 0.7fr);
-  align-items: start;
+  width: 100%;
+  height: 100vh;
+  grid-template-columns: minmax(360px, 580px) 1fr;
+  gap: 0;
+  align-items: stretch;
+}
+
+body:has(.in-room) {
+  height: 100vh;
+  overflow: hidden;
+  place-items: stretch;
+  place-content: stretch;
 }
 
 .app-shell.in-room .brand-panel,
@@ -192,6 +202,7 @@ h1 {
 
 .room-panel {
   min-height: 560px;
+  overflow-y: auto;
 }
 
 .room-chat-panel {
@@ -201,6 +212,37 @@ h1 {
   grid-template-rows: minmax(0, 1fr);
   position: sticky;
   top: 16px;
+}
+
+.app-shell.in-room .room-panel {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-shell.in-room .room-chat-panel {
+  min-height: 0;
+  max-height: none;
+  position: static;
+  overflow: hidden;
+}
+
+.app-shell.in-room .room-panel,
+.app-shell.in-room .room-chat-panel {
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+}
+
+.app-shell.in-room .room-panel {
+  border-left: none;
+}
+
+.app-shell.in-room .room-chat-panel {
+  border-right: none;
+}
+
+.app-shell.in-room .chat-messages {
+  min-height: 0;
 }
 
 .room-header {
@@ -456,22 +498,37 @@ h1 {
 }
 
 #chatInput {
-  resize: none;
   line-height: 1.4;
   font-family: inherit;
   font-size: inherit;
   min-height: 46px;
+  max-height: 200px;
+  overflow-y: auto;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   color: var(--text);
   outline: none;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 #chatInput:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(242, 138, 0, 0.18);
+}
+
+#chatInput[contenteditable="false"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#chatInput:empty::before {
+  content: attr(data-placeholder);
+  color: #aaa;
+  pointer-events: none;
 }
 
 .chat-image-preview {
@@ -807,7 +864,15 @@ input[type="range"] {
 @media (max-width: 900px) {
   body {
     place-items: start center;
+    place-content: start;
     padding: 16px 0;
+  }
+
+  body:has(.in-room) {
+    height: auto;
+    overflow: visible;
+    place-items: start center;
+    place-content: start;
   }
 
   .app-shell {
@@ -815,7 +880,21 @@ input[type="range"] {
   }
 
   .app-shell.in-room {
+    width: calc(100vw - 32px);
+    height: auto;
     grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .app-shell.in-room .room-panel,
+  .app-shell.in-room .room-chat-panel {
+    border-radius: 8px;
+    border: 1px solid rgba(240, 190, 91, 0.72);
+    overflow-y: visible;
+  }
+
+  .app-shell.in-room .chat-messages {
+    min-height: 420px;
   }
 
   .room-chat-panel {

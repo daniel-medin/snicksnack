@@ -163,7 +163,7 @@
 
         <form id="chatForm" class="chat-form">
           <div id="chatImagePreview" class="chat-image-preview"></div>
-          <textarea id="chatInput" rows="2" autocomplete="off" placeholder="Skriv ett meddelande (Shift+Enter för ny rad)"></textarea>
+          <div id="chatInput" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Skriv ett meddelande" data-placeholder="Skriv ett meddelande (Shift+Enter för ny rad)"></div>
           <button id="chatSendButton" type="submit">Skicka</button>
         </form>
       </section>
