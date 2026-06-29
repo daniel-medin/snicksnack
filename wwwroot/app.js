@@ -7,6 +7,10 @@ const refreshDevicesButton = document.querySelector("#refreshDevicesButton");
 const testMicrophoneButton = document.querySelector("#testMicrophoneButton");
 const joinButton = document.querySelector("#joinButton");
 const leaveButton = document.querySelector("#leaveButton");
+const roomSettingsButton = document.querySelector("#roomSettingsButton");
+const roomSettingsPanel = document.querySelector("#roomSettingsPanel");
+const roomMicrophoneSelect = document.querySelector("#roomMicrophoneSelect");
+const refreshRoomDevicesButton = document.querySelector("#refreshRoomDevicesButton");
 const statusText = document.querySelector("#statusText");
 const statusDot = document.querySelector("#statusDot");
 const messageText = document.querySelector("#messageText");
@@ -145,6 +149,7 @@ function showLobby() {
   appShell.classList.remove("in-room");
   lobbyPanel.hidden = false;
   roomPanel.hidden = true;
+  setRoomSettingsOpen(false);
   activeRoomTitle.textContent = "Rum";
 }
 
@@ -166,27 +171,45 @@ function sendSignal(message) {
   }
 }
 
+function setRoomSettingsOpen(isOpen) {
+  roomSettingsPanel.hidden = !isOpen;
+  roomSettingsButton.setAttribute("aria-expanded", String(isOpen));
+}
+
+function fillMicrophoneSelect(select, microphones, selectedDeviceId) {
+  select.innerHTML = "";
+
+  if (microphones.length === 0) {
+    select.append(new Option("Ingen mikrofon hittades", ""));
+    return;
+  }
+
+  microphones.forEach((device, index) => {
+    const label = device.label || (index === 0 ? "Standardmikrofon" : `Mikrofon ${index + 1}`);
+    select.append(new Option(label, device.deviceId));
+  });
+
+  if ([...select.options].some((option) => option.value === selectedDeviceId)) {
+    select.value = selectedDeviceId;
+  }
+}
+
+function syncMicrophoneSelects(deviceId) {
+  for (const select of [microphoneSelect, roomMicrophoneSelect]) {
+    if ([...select.options].some((option) => option.value === deviceId)) {
+      select.value = deviceId;
+    }
+  }
+}
+
 async function refreshDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const microphones = devices.filter((device) => device.kind === "audioinput");
-    const currentValue = microphoneSelect.value;
+    const currentValue = microphoneSelect.value || roomMicrophoneSelect.value;
 
-    microphoneSelect.innerHTML = "";
-
-    if (microphones.length === 0) {
-      microphoneSelect.append(new Option("Ingen mikrofon hittades", ""));
-      return;
-    }
-
-    microphones.forEach((device, index) => {
-      const label = device.label || (index === 0 ? "Standardmikrofon" : `Mikrofon ${index + 1}`);
-      microphoneSelect.append(new Option(label, device.deviceId));
-    });
-
-    if ([...microphoneSelect.options].some((option) => option.value === currentValue)) {
-      microphoneSelect.value = currentValue;
-    }
+    fillMicrophoneSelect(microphoneSelect, microphones, currentValue);
+    fillMicrophoneSelect(roomMicrophoneSelect, microphones, currentValue);
   } catch (error) {
     setMessage("Kunde inte läsa mikrofonlistan.", true);
   }
@@ -286,24 +309,60 @@ async function getLocalAudioStream() {
     return localStream;
   }
 
-  cleanupLocalStream();
-
   const deviceId = microphoneSelect.value;
+  let nextStream = null;
   try {
-    localStream = await navigator.mediaDevices.getUserMedia(audioConstraints(deviceId));
+    nextStream = await navigator.mediaDevices.getUserMedia(audioConstraints(deviceId));
   } catch (error) {
     if (!deviceId || !["OverconstrainedError", "ConstraintNotSatisfiedError", "NotFoundError"].includes(error?.name)) {
       throw error;
     }
 
     microphoneSelect.value = "";
-    localStream = await navigator.mediaDevices.getUserMedia(audioConstraints(""));
+    syncMicrophoneSelects("");
+    nextStream = await navigator.mediaDevices.getUserMedia(audioConstraints(""));
   }
 
+  cleanupLocalStream();
+  localStream = nextStream;
   await refreshDevices();
   await refreshMusicDevices();
   startInputMeter(localStream);
   return localStream;
+}
+
+async function changeMicrophone() {
+  if (!localStream) {
+    return;
+  }
+
+  roomMicrophoneSelect.disabled = true;
+  refreshRoomDevicesButton.disabled = true;
+  setMessage("");
+
+  try {
+    if (musicStream || mixedAudioTrack) {
+      await stopMusicSharing("Musik pausad efter mikrofonbyte.");
+    }
+
+    await getLocalAudioStream();
+
+    const microphoneTrack = getLocalAudioTrack();
+    if (microphoneTrack) {
+      await replaceOutgoingAudioTrack(microphoneTrack);
+    }
+
+    setMessage("Mikrofonen är bytt.");
+  } catch (error) {
+    syncMicrophoneSelects(getLocalAudioTrack()?.getSettings().deviceId || "");
+    await refreshDevices();
+    setStatus("error");
+    setMessage(microphoneErrorMessage(error), true);
+    console.error(error);
+  } finally {
+    roomMicrophoneSelect.disabled = false;
+    refreshRoomDevicesButton.disabled = false;
+  }
 }
 
 function startInputMeter(stream) {
@@ -1238,11 +1297,27 @@ refreshDevicesButton.addEventListener("click", async () => {
 
 testMicrophoneButton.addEventListener("click", testMicrophone);
 
-microphoneSelect.addEventListener("change", () => {
-  if (localStream && !shouldReconnect) {
-    getLocalAudioStream();
+async function handleMicrophoneChange(event) {
+  syncMicrophoneSelects(event.target.value);
+
+  if (localStream) {
+    await changeMicrophone();
+  }
+}
+
+microphoneSelect.addEventListener("change", handleMicrophoneChange);
+
+roomSettingsButton.addEventListener("click", async () => {
+  const isExpanded = roomSettingsButton.getAttribute("aria-expanded") === "true";
+  setRoomSettingsOpen(!isExpanded);
+
+  if (!isExpanded) {
+    await refreshDevices();
   }
 });
+
+roomMicrophoneSelect.addEventListener("change", handleMicrophoneChange);
+refreshRoomDevicesButton.addEventListener("click", refreshDevices);
 
 refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
@@ -1291,6 +1366,9 @@ if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices
   setConnectedControls(false);
   joinButton.disabled = true;
   testMicrophoneButton.disabled = true;
+  roomSettingsButton.disabled = true;
+  roomMicrophoneSelect.disabled = true;
+  refreshRoomDevicesButton.disabled = true;
   musicToggleButton.disabled = true;
   startMusicButton.disabled = true;
   stopMusicButton.disabled = true;
