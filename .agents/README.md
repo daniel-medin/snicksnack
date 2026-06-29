@@ -22,6 +22,7 @@ The backend helps clients discover each other and exchange session metadata. Cal
 - WebRTC peer connections are created per remote participant. Remote audio is attached to hidden `audio` elements.
 - Local and remote level meters use Web Audio `AnalyserNode`s.
 - The room header has a cog settings menu for switching the microphone while staying in the room. This should replace the outgoing audio track, not disconnect chat or signaling.
+- Room settings also include a mute toggle and push-to-talk. PTT stores the bound key in local storage, mutes the microphone unless the key is held, and the hard mute toggle always takes priority.
 - Music sharing captures a selected audio input without voice-processing constraints, mixes it with the microphone in Web Audio, and replaces the outgoing track with the mixed stream.
 - Text chat is separate from WebRTC audio and uses SignalR. Incoming chat messages play `wwwroot/assets/duck.mp3`.
 - Chat messages can contain sanitized Markdown. Pasted images are resized client-side and sent as data URLs inside the chat message, so SignalR message-size limits matter.
@@ -34,6 +35,7 @@ The backend helps clients discover each other and exchange session metadata. Cal
 - Do not route audio through the backend. Keep audio capture, mixing, and playback client-side.
 - Preserve the room/password validation model: signaling joins create or enter rooms; SignalR chat joins must validate against the existing room.
 - Be careful with media streams. Prefer acquiring a replacement stream before stopping the active microphone so failed device switches do not break an ongoing call.
+- Mute and push-to-talk should gate the local microphone track with `track.enabled`; do not renegotiate or disconnect peers for basic muting.
 - If changing rich chat rendering, keep the `marked` and `DOMPurify` script tags in `wwwroot/index.html` aligned with `wwwroot/app.js`.
 - If changing WebSocket message shapes, update both `ClientMessage`/`ServerMessage` in `Program.cs` and the matching handlers in `wwwroot/app.js`.
 - If changing room visibility rules, update both `RoomRegistry.GetOpenRooms()` and the README wording.

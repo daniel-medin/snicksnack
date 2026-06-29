@@ -11,6 +11,12 @@ const roomSettingsButton = document.querySelector("#roomSettingsButton");
 const roomSettingsPanel = document.querySelector("#roomSettingsPanel");
 const roomMicrophoneSelect = document.querySelector("#roomMicrophoneSelect");
 const refreshRoomDevicesButton = document.querySelector("#refreshRoomDevicesButton");
+const muteToggleButton = document.querySelector("#muteToggleButton");
+const muteStateText = document.querySelector("#muteStateText");
+const pushToTalkToggleButton = document.querySelector("#pushToTalkToggleButton");
+const pushToTalkStateText = document.querySelector("#pushToTalkStateText");
+const bindPushToTalkButton = document.querySelector("#bindPushToTalkButton");
+const pushToTalkKeyText = document.querySelector("#pushToTalkKeyText");
 const statusText = document.querySelector("#statusText");
 const statusDot = document.querySelector("#statusDot");
 const messageText = document.querySelector("#messageText");
@@ -51,6 +57,7 @@ const lobbyMessageText = document.querySelector("#lobbyMessageText");
 const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
 const messageSoundUrl = "/assets/duck.mp3";
+const pushToTalkStorageKey = "snicksnackPushToTalkKey";
 
 let ws = null;
 let ownPeerId = "";
@@ -78,6 +85,11 @@ let musicMeterData = null;
 let mixedAudioTrack = null;
 let isStoppingMusic = false;
 let chatConnection = null;
+let isMuted = false;
+let isPushToTalkEnabled = false;
+let isPushToTalkPressed = false;
+let isBindingPushToTalkKey = false;
+let pushToTalkBinding = loadPushToTalkBinding();
 const peerConnections = new Map();
 const pendingIceCandidates = new Map();
 const remoteAudioElements = new Map();
@@ -128,6 +140,50 @@ function setConnectedControls(isConnected) {
   microphoneSelect.disabled = isConnected;
   refreshDevicesButton.disabled = isConnected;
   testMicrophoneButton.disabled = isConnected;
+}
+
+function loadPushToTalkBinding() {
+  try {
+    const stored = window.localStorage?.getItem(pushToTalkStorageKey);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePushToTalkBinding(binding) {
+  pushToTalkBinding = binding;
+
+  try {
+    if (binding) {
+      window.localStorage?.setItem(pushToTalkStorageKey, JSON.stringify(binding));
+    } else {
+      window.localStorage?.removeItem(pushToTalkStorageKey);
+    }
+  } catch {
+    // Local storage can be blocked; binding still works for this session.
+  }
+}
+
+function keyDisplayName(event) {
+  if (event.code === "Space") {
+    return "Mellanslag";
+  }
+
+  if (/^Key[A-Z]$/.test(event.code)) {
+    return event.code.slice(3);
+  }
+
+  if (/^Digit\d$/.test(event.code)) {
+    return event.code.slice(5);
+  }
+
+  return event.key?.length === 1 ? event.key.toUpperCase() : event.key || event.code;
+}
+
+function isTypingTarget(target) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 }
 
 function setMeterLevel(bar, meter, level) {
@@ -338,6 +394,7 @@ async function getLocalAudioStream() {
   await refreshDevices();
   await refreshMusicDevices();
   startInputMeter(localStream);
+  updateMicrophoneTransmission();
   return localStream;
 }
 
@@ -433,6 +490,41 @@ function stopInputMeter() {
 
 function getLocalAudioTrack() {
   return localStream?.getAudioTracks()[0] || null;
+}
+
+function isMicrophoneOpen() {
+  return !isMuted && (!isPushToTalkEnabled || isPushToTalkPressed);
+}
+
+function updateMicrophoneTransmission() {
+  const track = getLocalAudioTrack();
+  if (track) {
+    track.enabled = isMicrophoneOpen();
+  }
+
+  muteToggleButton.setAttribute("aria-pressed", String(isMuted));
+  muteStateText.textContent = isMuted ? "Av" : "På";
+  pushToTalkToggleButton.setAttribute("aria-pressed", String(isPushToTalkEnabled));
+  pushToTalkStateText.textContent = isPushToTalkEnabled ? "På" : "Av";
+
+  if (isBindingPushToTalkKey) {
+    pushToTalkKeyText.textContent = "Tryck en tangent...";
+  } else {
+    pushToTalkKeyText.textContent = pushToTalkBinding?.label || "Ingen tangent vald";
+  }
+
+  bindPushToTalkButton.classList.toggle("is-listening", isBindingPushToTalkKey);
+}
+
+function setMuted(nextMuted) {
+  isMuted = nextMuted;
+  updateMicrophoneTransmission();
+}
+
+function setPushToTalkEnabled(nextEnabled) {
+  isPushToTalkEnabled = nextEnabled;
+  isPushToTalkPressed = false;
+  updateMicrophoneTransmission();
 }
 
 function getOutgoingAudioTrack() {
@@ -1282,6 +1374,7 @@ async function testMicrophone() {
 
 function disconnect(notifyServer = true, finalStatus = "disconnected", finalMessage = "", isError = false) {
   shouldReconnect = false;
+  isPushToTalkPressed = false;
   window.clearTimeout(reconnectTimer);
   reconnectTimer = null;
 
@@ -1297,6 +1390,7 @@ function disconnect(notifyServer = true, finalStatus = "disconnected", finalMess
   musicStatusText.textContent = "Ingen musik streamas";
   stopChatConnection();
   cleanupLocalStream();
+  updateMicrophoneTransmission();
   ownPeerId = "";
   setConnectedControls(false);
   showLobby();
@@ -1354,6 +1448,88 @@ roomSettingsButton.addEventListener("click", async () => {
 
 roomMicrophoneSelect.addEventListener("change", handleMicrophoneChange);
 refreshRoomDevicesButton.addEventListener("click", refreshDevices);
+
+muteToggleButton.addEventListener("click", () => {
+  setMuted(!isMuted);
+});
+
+pushToTalkToggleButton.addEventListener("click", () => {
+  if (!isPushToTalkEnabled && !pushToTalkBinding) {
+    isBindingPushToTalkKey = true;
+    updateMicrophoneTransmission();
+    setMessage("Tryck den tangent du vill använda för push to talk.");
+    return;
+  }
+
+  setPushToTalkEnabled(!isPushToTalkEnabled);
+});
+
+bindPushToTalkButton.addEventListener("click", () => {
+  isBindingPushToTalkKey = true;
+  updateMicrophoneTransmission();
+  setMessage("Tryck en tangent för push to talk. Esc avbryter, Backspace tar bort.");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (isBindingPushToTalkKey) {
+    event.preventDefault();
+
+    if (event.key === "Escape") {
+      isBindingPushToTalkKey = false;
+      updateMicrophoneTransmission();
+      setMessage("");
+      return;
+    }
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      savePushToTalkBinding(null);
+      isBindingPushToTalkKey = false;
+      setPushToTalkEnabled(false);
+      setMessage("Push to talk-tangenten är borttagen.");
+      return;
+    }
+
+    if (["Alt", "Control", "Meta", "Shift"].includes(event.key)) {
+      return;
+    }
+
+    savePushToTalkBinding({ code: event.code, label: keyDisplayName(event) });
+    isBindingPushToTalkKey = false;
+    setPushToTalkEnabled(true);
+    setMessage(`Push to talk är bunden till ${pushToTalkBinding.label}.`);
+    return;
+  }
+
+  if (!isPushToTalkEnabled || !pushToTalkBinding || event.code !== pushToTalkBinding.code || isTypingTarget(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (!event.repeat) {
+    isPushToTalkPressed = true;
+    updateMicrophoneTransmission();
+  }
+});
+
+document.addEventListener("keyup", (event) => {
+  if (!isPushToTalkEnabled || !pushToTalkBinding || event.code !== pushToTalkBinding.code) {
+    return;
+  }
+
+  event.preventDefault();
+  isPushToTalkPressed = false;
+  updateMicrophoneTransmission();
+});
+
+window.addEventListener("blur", () => {
+  if (!isPushToTalkPressed) {
+    return;
+  }
+
+  isPushToTalkPressed = false;
+  updateMicrophoneTransmission();
+});
 
 refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
@@ -1432,6 +1608,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setChatControls(false);
+updateMicrophoneTransmission();
 
 if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices) || !("RTCPeerConnection" in window)) {
   setStatus("error");
@@ -1442,6 +1619,9 @@ if (!("mediaDevices" in navigator) || !("getUserMedia" in navigator.mediaDevices
   roomSettingsButton.disabled = true;
   roomMicrophoneSelect.disabled = true;
   refreshRoomDevicesButton.disabled = true;
+  muteToggleButton.disabled = true;
+  pushToTalkToggleButton.disabled = true;
+  bindPushToTalkButton.disabled = true;
   musicToggleButton.disabled = true;
   startMusicButton.disabled = true;
   stopMusicButton.disabled = true;
