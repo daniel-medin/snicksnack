@@ -560,11 +560,43 @@ button.is-listening {
   overflow-wrap: anywhere;
 }
 
+.chat-message-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.chat-edit-button {
+  min-height: 26px;
+  padding: 0 8px;
+  border-color: rgba(242, 138, 0, 0.28);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  box-shadow: none;
+}
+
+.chat-edit-button:hover:not(:disabled) {
+  background: #fff;
+}
+
+.chat-edited-text {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .chat-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   gap: 10px;
+}
+
+.chat-form.is-editing #chatInput {
+  border-color: var(--accent);
+  background: var(--cream);
 }
 
 #chatInput {

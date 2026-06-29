@@ -422,6 +422,7 @@ sealed class RoomRegistry
 sealed class ChatHub(RoomRegistry rooms) : Hub
 {
     private const int MaxMessageLength = 400_000; // ~300 KB base64-bild
+    private static readonly ConcurrentDictionary<string, EditableChatMessage> ChatMessages = new(StringComparer.Ordinal);
 
     public async Task JoinRoom(string roomCode, string? password, string? displayName)
     {
@@ -457,9 +458,57 @@ sealed class ChatHub(RoomRegistry rooms) : Hub
             normalizedMessage = normalizedMessage[..MaxMessageLength];
         }
 
-        await Clients.Group(ChatGroupName(roomCode)).SendAsync(
-            "ReceiveMessage",
-            new ChatMessage(Context.ConnectionId, displayName, normalizedMessage, DateTimeOffset.UtcNow));
+        var messageId = Guid.NewGuid().ToString("N");
+        var sentAt = DateTimeOffset.UtcNow;
+        var chatMessage = new EditableChatMessage(
+            messageId,
+            roomCode,
+            Context.ConnectionId,
+            displayName,
+            normalizedMessage,
+            sentAt,
+            null);
+
+        ChatMessages[messageId] = chatMessage;
+
+        await Clients.Group(ChatGroupName(roomCode)).SendAsync("ReceiveMessage", chatMessage.ToChatMessage());
+    }
+
+    public async Task EditMessage(string messageId, string message)
+    {
+        if (!Context.Items.TryGetValue("RoomCode", out var value) || value is not string roomCode)
+        {
+            throw new HubException("Chatten är inte ansluten till ett rum.");
+        }
+
+        if (string.IsNullOrWhiteSpace(messageId)
+            || !ChatMessages.TryGetValue(messageId, out var existing)
+            || existing.RoomCode != roomCode
+            || existing.SenderId != Context.ConnectionId)
+        {
+            throw new HubException("Meddelandet kunde inte redigeras.");
+        }
+
+        var normalizedMessage = (message ?? "").Trim();
+        if (normalizedMessage.Length == 0)
+        {
+            return;
+        }
+
+        if (normalizedMessage.Length > MaxMessageLength)
+        {
+            normalizedMessage = normalizedMessage[..MaxMessageLength];
+        }
+
+        var updated = existing with
+        {
+            Text = normalizedMessage,
+            EditedAt = DateTimeOffset.UtcNow
+        };
+
+        ChatMessages[messageId] = updated;
+
+        await Clients.Group(ChatGroupName(roomCode)).SendAsync("ReceiveMessageEdited", updated.ToChatMessage());
     }
 
     private static string ChatGroupName(string roomCode)
@@ -552,7 +601,22 @@ sealed record OpenRoom(string RoomCode, string Name, int ParticipantCount);
 
 sealed record PeerInfo(string PeerId, string DisplayName);
 
-sealed record ChatMessage(string SenderId, string SenderName, string Text, DateTimeOffset SentAt);
+sealed record ChatMessage(string Id, string SenderId, string SenderName, string Text, DateTimeOffset SentAt, DateTimeOffset? EditedAt = null);
+
+sealed record EditableChatMessage(
+    string Id,
+    string RoomCode,
+    string SenderId,
+    string SenderName,
+    string Text,
+    DateTimeOffset SentAt,
+    DateTimeOffset? EditedAt)
+{
+    public ChatMessage ToChatMessage()
+    {
+        return new ChatMessage(Id, SenderId, SenderName, Text, SentAt, EditedAt);
+    }
+}
 
 sealed record ServerMessage(
     string Type,

@@ -90,10 +90,13 @@ let isPushToTalkEnabled = false;
 let isPushToTalkPressed = false;
 let isBindingPushToTalkKey = false;
 let pushToTalkBinding = loadPushToTalkBinding();
+let editingMessageId = null;
 const peerConnections = new Map();
 const pendingIceCandidates = new Map();
 const remoteAudioElements = new Map();
 const remoteParticipants = new Map();
+const chatMessageElements = new Map();
+const ownChatMessageIds = [];
 let remoteParticipantCounter = 0;
 
 const rtcConfiguration = {
@@ -714,30 +717,154 @@ function setChatControls(isConnected, status = "") {
   chatInput.contentEditable = isConnected ? "true" : "false";
   chatSendButton.disabled = !isConnected;
   chatStatusText.textContent = status || (isConnected ? "Ansluten" : "Inte ansluten");
+
+  if (!isConnected) {
+    clearEditingState();
+  }
+}
+
+function formatChatTime(value) {
+  const date = value ? new Date(value) : new Date();
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderChatText(element, raw) {
+  if (window.marked && window.DOMPurify) {
+    element.innerHTML = DOMPurify.sanitize(marked.parse(raw));
+  } else {
+    element.textContent = raw;
+  }
+}
+
+function setChatDraft(text) {
+  chatInput.textContent = text || "";
+}
+
+function getChatDraft() {
+  return chatInput.innerText.replace(/\u00a0/g, " ").trim();
+}
+
+function focusChatInputAtEnd() {
+  chatInput.focus();
+
+  const range = document.createRange();
+  range.selectNodeContents(chatInput);
+  range.collapse(false);
+
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function clearEditingState() {
+  editingMessageId = null;
+  chatForm.classList.remove("is-editing");
+  chatSendButton.textContent = "Skicka";
+  chatInput.dataset.placeholder = "Skriv ett meddelande (Shift+Enter för ny rad)";
+}
+
+function resetChatState() {
+  chatMessages.replaceChildren();
+  chatMessageElements.clear();
+  ownChatMessageIds.length = 0;
+  clearEditingState();
+}
+
+function startEditingMessage(messageId) {
+  const record = chatMessageElements.get(messageId);
+  if (!record?.isOwn) {
+    return;
+  }
+
+  editingMessageId = messageId;
+  pendingImage = null;
+  clearChatImagePreview();
+  setChatDraft(record.rawText);
+  chatForm.classList.add("is-editing");
+  chatSendButton.textContent = "Spara";
+  chatInput.dataset.placeholder = "Redigera meddelande";
+  focusChatInputAtEnd();
+}
+
+function startEditingLatestOwnMessage() {
+  for (let index = ownChatMessageIds.length - 1; index >= 0; index -= 1) {
+    const messageId = ownChatMessageIds[index];
+    if (chatMessageElements.has(messageId)) {
+      startEditingMessage(messageId);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function appendChatMessage(message, isOwn) {
+  const messageId = message.id || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const item = document.createElement("article");
   item.className = `chat-message ${isOwn ? "own" : "incoming"}`;
+  item.dataset.messageId = messageId;
 
   const meta = document.createElement("span");
-  const sentAt = message.sentAt ? new Date(message.sentAt) : new Date();
-  const time = Number.isNaN(sentAt.getTime())
-    ? ""
-    : sentAt.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+  const time = formatChatTime(message.sentAt);
   meta.textContent = `${isOwn ? "Du" : (message.senderName || "Deltagare")}${time ? ` ${time}` : ""}`;
+
+  const body = document.createElement("div");
+  body.className = "chat-message-body";
 
   const text = document.createElement("p");
   const raw = message.text || "";
-  if (window.marked && window.DOMPurify) {
-    text.innerHTML = DOMPurify.sanitize(marked.parse(raw));
-  } else {
-    text.textContent = raw;
+  renderChatText(text, raw);
+  body.append(text);
+
+  if (isOwn) {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "chat-edit-button";
+    editButton.title = "Redigera meddelande";
+    editButton.setAttribute("aria-label", "Redigera meddelande");
+    editButton.textContent = "Edit";
+    editButton.addEventListener("click", () => startEditingMessage(messageId));
+    body.append(editButton);
+
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      startEditingMessage(messageId);
+    });
+
+    ownChatMessageIds.push(messageId);
   }
 
-  item.append(meta, text);
+  const edited = document.createElement("small");
+  edited.className = "chat-edited-text";
+  if (message.editedAt) {
+    edited.textContent = `Redigerat ${formatChatTime(message.editedAt)}`;
+  }
+
+  item.append(meta, body, edited);
   chatMessages.append(item);
+  chatMessageElements.set(messageId, {
+    item,
+    text,
+    edited,
+    rawText: raw,
+    isOwn
+  });
   chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function updateChatMessage(message) {
+  const messageId = message.id;
+  const record = messageId ? chatMessageElements.get(messageId) : null;
+  if (!record) {
+    appendChatMessage(message, message.senderId === chatConnection?.connectionId);
+    return;
+  }
+
+  record.rawText = message.text || "";
+  renderChatText(record.text, record.rawText);
+  record.edited.textContent = message.editedAt ? `Redigerat ${formatChatTime(message.editedAt)}` : "";
 }
 
 function playQuack() {
@@ -753,7 +880,7 @@ async function startChatConnection(roomCode) {
   }
 
   await stopChatConnection();
-  chatMessages.replaceChildren();
+  resetChatState();
   setChatControls(false, "Ansluter");
 
   chatConnection = new signalR.HubConnectionBuilder()
@@ -768,6 +895,10 @@ async function startChatConnection(roomCode) {
     if (!isOwn) {
       playQuack();
     }
+  });
+
+  chatConnection.on("ReceiveMessageEdited", (message) => {
+    updateChatMessage(message);
   });
 
   chatConnection.onreconnecting(() => {
@@ -802,6 +933,7 @@ async function stopChatConnection() {
   const connection = chatConnection;
   chatConnection = null;
   setChatControls(false);
+  resetChatState();
 
   if (connection) {
     await connection.stop().catch(() => {});
@@ -809,19 +941,27 @@ async function stopChatConnection() {
 }
 
 async function sendChatMessage() {
-  const text = chatInput.innerHTML.trim();
+  const text = getChatDraft();
   const image = pendingImage;
-  if (!text && !image) return;
+  if (!text && !image) {
+    return;
+  }
+
   if (!chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) return;
 
   const imageMarkdown = image ? `![bild](${image})` : "";
   const message = [text, imageMarkdown].filter(Boolean).join("\n\n");
 
-  chatInput.innerHTML = "";
-  clearChatImagePreview();
-
   try {
-    await chatConnection.invoke("SendMessage", message);
+    if (editingMessageId) {
+      await chatConnection.invoke("EditMessage", editingMessageId, message);
+      clearEditingState();
+    } else {
+      await chatConnection.invoke("SendMessage", message);
+    }
+
+    setChatDraft("");
+    clearChatImagePreview();
   } catch (error) {
     setMessage("Kunde inte skicka chattmeddelandet.", true);
     console.error(error);
@@ -835,7 +975,7 @@ function showChatImagePreview(dataUrl) {
   const removeBtn = document.createElement("button");
   removeBtn.type = "button";
   removeBtn.className = "remove-image-btn";
-  removeBtn.textContent = "✕";
+  removeBtn.textContent = "X";
   removeBtn.addEventListener("click", clearChatImagePreview);
   chatImagePreview.replaceChildren(thumb, removeBtn);
 }
@@ -1557,6 +1697,21 @@ chatForm.addEventListener("submit", async (event) => {
 });
 
 chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && editingMessageId) {
+    e.preventDefault();
+    clearEditingState();
+    setChatDraft("");
+    clearChatImagePreview();
+    return;
+  }
+
+  if (e.key === "ArrowUp" && !editingMessageId && getChatDraft().length === 0) {
+    if (startEditingLatestOwnMessage()) {
+      e.preventDefault();
+    }
+    return;
+  }
+
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     chatForm.requestSubmit();
@@ -1564,6 +1719,10 @@ chatInput.addEventListener("keydown", (e) => {
 });
 
 chatInput.addEventListener("paste", (e) => {
+  if (editingMessageId) {
+    return;
+  }
+
   const items = [...(e.clipboardData?.items ?? [])];
   const imageItem = items.find(i => i.type.startsWith("image/"));
   if (imageItem) {

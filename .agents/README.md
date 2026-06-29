@@ -26,6 +26,7 @@ The backend helps clients discover each other and exchange session metadata. Cal
 - Music sharing captures a selected audio input without voice-processing constraints, mixes it with the microphone in Web Audio, and replaces the outgoing track with the mixed stream.
 - Text chat is separate from WebRTC audio and uses SignalR. Incoming chat messages play `wwwroot/assets/duck.mp3`.
 - Chat messages can contain sanitized Markdown. Pasted images are resized client-side and sent as data URLs inside the chat message, so SignalR message-size limits matter.
+- Own chat messages can be edited with ArrowUp from an empty input or the per-message Edit button. Edits update the existing message and show a small edited timestamp.
 - The open-room list refreshes manually and periodically while the user is not connected.
 
 ## Change Guidelines
