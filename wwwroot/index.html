@@ -174,7 +174,8 @@
         <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
 
         <form id="chatForm" class="chat-form">
-          <input id="chatInput" type="text" maxlength="500" autocomplete="off" placeholder="Skriv ett meddelande">
+          <div id="chatImagePreview" class="chat-image-preview"></div>
+          <div id="chatInput" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Skriv ett meddelande" data-placeholder="Skriv ett meddelande (Shift+Enter för ny rad)"></div>
           <button id="chatSendButton" type="submit">Skicka</button>
         </form>
       </section>
@@ -182,6 +183,8 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <script src="/app.js?v=snicksnack-room-7" defer></script>
 </body>
 </html>
