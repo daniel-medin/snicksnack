@@ -1,6 +1,6 @@
 # Snick Snack
 
-En minimal svensk P2P-rostchat byggd med ASP.NET Core Minimal API, WebSocket-signalering och WebRTC.
+En minimal svensk P2P-röstchat byggd med ASP.NET Core Minimal API, WebSocket-signalering och WebRTC.
 
 Servern hanterar endast signaling: `join-room`, `offer`, `answer`, `ice-candidate` och `leave-room`. Ljudet skickas direkt mellan klienterna via WebRTC och passerar aldrig backend.
 
