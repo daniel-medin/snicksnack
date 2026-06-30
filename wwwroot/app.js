@@ -62,8 +62,8 @@ const pushToTalkStorageKey = "snicksnackPushToTalkKey";
 const roomVoiceWidthStorageKey = "snicksnackRoomVoiceWidth";
 const roomVoiceMinWidth = 320;
 const roomVoiceDefaultWidth = 580;
-const roomVoiceMaxWidth = 760;
-const roomChatMinWidth = 320;
+const roomVoiceMaxWidth = 2400;
+const roomChatMinWidth = 220;
 
 let ws = null;
 let ownPeerId = "";
@@ -211,15 +211,19 @@ function storedRoomVoiceWidth() {
 
 function clampRoomVoiceWidth(width) {
   const shellWidth = appShell.getBoundingClientRect().width || window.innerWidth;
-  const handleWidth = roomResizeHandle?.getBoundingClientRect().width || 14;
+  const handleWidth = roomResizeHandle?.getBoundingClientRect().width || 7;
   const responsiveMax = Math.max(roomVoiceMinWidth, shellWidth - handleWidth - roomChatMinWidth);
   return Math.round(Math.min(Math.max(width, roomVoiceMinWidth), Math.min(roomVoiceMaxWidth, responsiveMax)));
 }
 
 function setRoomVoiceWidth(width, persist = false) {
+  const shellWidth = appShell.getBoundingClientRect().width || window.innerWidth;
+  const handleWidth = roomResizeHandle?.getBoundingClientRect().width || 7;
+  const responsiveMax = Math.max(roomVoiceMinWidth, shellWidth - handleWidth - roomChatMinWidth);
   const nextWidth = clampRoomVoiceWidth(width);
   appShell.style.setProperty("--room-voice-width", `${nextWidth}px`);
   roomResizeHandle?.setAttribute("aria-valuenow", String(nextWidth));
+  roomResizeHandle?.setAttribute("aria-valuemax", String(Math.min(roomVoiceMaxWidth, responsiveMax)));
 
   if (persist) {
     try {
