@@ -798,6 +798,11 @@ function getChatDraft() {
   return chatInput.innerText.replace(/\u00a0/g, " ").trim();
 }
 
+function parseEditCommand(text) {
+  const match = text.match(/^\/edit(?:\s+([\s\S]*))?$/i);
+  return match ? { replacement: (match[1] || "").trim() } : null;
+}
+
 function focusChatInputAtEnd() {
   chatInput.focus();
 
@@ -840,13 +845,22 @@ function startEditingMessage(messageId) {
   focusChatInputAtEnd();
 }
 
-function startEditingLatestOwnMessage() {
+function latestOwnMessageId() {
   for (let index = ownChatMessageIds.length - 1; index >= 0; index -= 1) {
     const messageId = ownChatMessageIds[index];
     if (chatMessageElements.has(messageId)) {
-      startEditingMessage(messageId);
-      return true;
+      return messageId;
     }
+  }
+
+  return null;
+}
+
+function startEditingLatestOwnMessage() {
+  const messageId = latestOwnMessageId();
+  if (messageId) {
+    startEditingMessage(messageId);
+    return true;
   }
 
   return false;
@@ -995,11 +1009,37 @@ async function stopChatConnection() {
 async function sendChatMessage() {
   const text = getChatDraft();
   const image = pendingImage;
-  if (!text && !image) {
+
+  if (!chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) return;
+
+  const editCommand = !editingMessageId && !image ? parseEditCommand(text) : null;
+  if (editCommand) {
+    const messageId = latestOwnMessageId();
+    if (!messageId) {
+      setMessage("Det finns inget eget meddelande att redigera.", true);
+      return;
+    }
+
+    if (!editCommand.replacement) {
+      setChatDraft("");
+      startEditingMessage(messageId);
+      return;
+    }
+
+    try {
+      await chatConnection.invoke("EditMessage", messageId, editCommand.replacement);
+      setChatDraft("");
+      clearChatImagePreview();
+    } catch (error) {
+      setMessage("Kunde inte redigera chattmeddelandet.", true);
+      console.error(error);
+    }
     return;
   }
 
-  if (!chatConnection || chatConnection.state !== signalR.HubConnectionState.Connected) return;
+  if (!text && !image) {
+    return;
+  }
 
   const imageMarkdown = image ? `![bild](${image})` : "";
   const message = [text, imageMarkdown].filter(Boolean).join("\n\n");
@@ -1015,7 +1055,7 @@ async function sendChatMessage() {
     setChatDraft("");
     clearChatImagePreview();
   } catch (error) {
-    setMessage("Kunde inte skicka chattmeddelandet.", true);
+    setMessage(editingMessageId ? "Kunde inte redigera chattmeddelandet." : "Kunde inte skicka chattmeddelandet.", true);
     console.error(error);
   }
 }
@@ -1820,6 +1860,22 @@ chatInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     chatForm.requestSubmit();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented
+    || event.key !== "ArrowUp"
+    || editingMessageId
+    || getChatDraft().length > 0
+    || !chatConnection
+    || chatConnection.state !== signalR.HubConnectionState.Connected
+    || isShortcutTarget(event.target)) {
+    return;
+  }
+
+  if (startEditingLatestOwnMessage()) {
+    event.preventDefault();
   }
 });
 

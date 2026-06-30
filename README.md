@@ -13,6 +13,7 @@ Servern hjälper deltagare att hitta varandra, validerar rum och vidarebefordrar
 - Mikrofonval via `enumerateDevices()`
 - Rumsinställningar med mikrofonbyte utan att lämna chatten
 - Mute-toggle och push-to-talk med valfri tangent i rumsinställningarna
+- Horisontellt dragbar rumsdelare mellan röstinställningar och textchatt
 - Input- och deltagarnivåmätare via Web Audio
 - `getUserMedia()` med echo cancellation, noise suppression och auto gain control för mikrofonen
 - Musikdelning från vald ljudingång, mixad lokalt med mikrofonen innan den skickas via WebRTC
@@ -45,7 +46,7 @@ För att testa röstchatten öppnar du två webbläsarfönster och anger samma r
 
 Frontend ligger i `wwwroot/index.html`, `wwwroot/styles.css` och `wwwroot/app.js`. Det finns inget separat frontend-bygge.
 
-När en användare går in i ett rum startar klienten mikrofonen, ansluter till `/ws`, går med i rummet och skapar WebRTC-anslutningar till övriga deltagare. I rumsinställningarna kan användaren byta mikrofon, muta sig eller aktivera push-to-talk genom att välja en tangent och hålla den nere för att prata. Chatten ansluter separat till `/chatHub`, men servern kontrollerar att användaren faktiskt hör till rummet innan chatten släpps in. Chattmeddelanden renderas som sanerad Markdown i klienten, kan redigeras med uppåtpil eller Edit-knappen på egna meddelanden, och inklistrade bilder skalas ned och skickas som data-URL i meddelandet.
+När en användare går in i ett rum startar klienten mikrofonen, ansluter till `/ws`, går med i rummet och skapar WebRTC-anslutningar till övriga deltagare. I rumsinställningarna kan användaren byta mikrofon, muta sig eller aktivera push-to-talk genom att välja en tangent och hålla den nere för att prata. Rumsdelaren mellan röstinställningar och textchatt kan dras i sidled och bredden sparas lokalt. Chatten ansluter separat till `/chatHub`, men servern kontrollerar att användaren faktiskt hör till rummet innan chatten släpps in. Chattmeddelanden renderas som sanerad Markdown i klienten, kan redigeras med uppåtpil, `/edit` eller Edit-knappen på egna meddelanden, och inklistrade bilder skalas ned och skickas som data-URL i meddelandet.
 
 ## Docker
 

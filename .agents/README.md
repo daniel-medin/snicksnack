@@ -23,10 +23,11 @@ The backend helps clients discover each other and exchange session metadata. Cal
 - Local and remote level meters use Web Audio `AnalyserNode`s.
 - The room header has a cog settings menu for switching the microphone while staying in the room. This should replace the outgoing audio track, not disconnect chat or signaling.
 - Room settings also include a mute toggle and push-to-talk. PTT stores the bound key in local storage, mutes the microphone unless the key is held, and the hard mute toggle always takes priority.
+- In room view, the vertical divider between voice controls and text chat is draggable. Its left-panel width is stored in local storage and should stay within the desktop min/max clamps.
 - Music sharing captures a selected audio input without voice-processing constraints, mixes it with the microphone in Web Audio, and replaces the outgoing track with the mixed stream.
 - Text chat is separate from WebRTC audio and uses SignalR. Incoming chat messages play `wwwroot/assets/duck.mp3`.
 - Chat messages can contain sanitized Markdown. Pasted images are resized client-side and sent as data URLs inside the chat message, so SignalR message-size limits matter.
-- Own chat messages can be edited with ArrowUp from an empty input or the per-message Edit button. Edits update the existing message and show a small edited timestamp.
+- Own chat messages can be edited with ArrowUp from an empty input, `/edit`, `/edit replacement text`, or the per-message Edit button. Edits update the existing message and show a small edited timestamp.
 - The open-room list refreshes manually and periodically while the user is not connected.
 
 ## Change Guidelines
