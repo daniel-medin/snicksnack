@@ -50,6 +50,7 @@ const openRoomsEmpty = document.querySelector("#openRoomsEmpty");
 const refreshRoomsButton = document.querySelector("#refreshRoomsButton");
 const lobbyPanel = document.querySelector("#lobbyPanel");
 const roomPanel = document.querySelector("#roomPanel");
+const roomResizeHandle = document.querySelector("#roomResizeHandle");
 const appShell = document.querySelector("#appShell");
 const activeRoomTitle = document.querySelector("#activeRoomTitle");
 const lobbyMessageText = document.querySelector("#lobbyMessageText");
@@ -58,6 +59,11 @@ const reconnectBaseDelayMs = 600;
 const reconnectMaxDelayMs = 6000;
 const messageSoundUrl = "/assets/duck.mp3";
 const pushToTalkStorageKey = "snicksnackPushToTalkKey";
+const roomVoiceWidthStorageKey = "snicksnackRoomVoiceWidth";
+const roomVoiceMinWidth = 320;
+const roomVoiceDefaultWidth = 580;
+const roomVoiceMaxWidth = 760;
+const roomChatMinWidth = 320;
 
 let ws = null;
 let ownPeerId = "";
@@ -189,6 +195,51 @@ function isTypingTarget(target) {
     && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 }
 
+function isShortcutTarget(target) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(target.tagName));
+}
+
+function storedRoomVoiceWidth() {
+  try {
+    const stored = Number(window.localStorage?.getItem(roomVoiceWidthStorageKey));
+    return Number.isFinite(stored) && stored > 0 ? stored : roomVoiceDefaultWidth;
+  } catch {
+    return roomVoiceDefaultWidth;
+  }
+}
+
+function clampRoomVoiceWidth(width) {
+  const shellWidth = appShell.getBoundingClientRect().width || window.innerWidth;
+  const handleWidth = roomResizeHandle?.getBoundingClientRect().width || 14;
+  const responsiveMax = Math.max(roomVoiceMinWidth, shellWidth - handleWidth - roomChatMinWidth);
+  return Math.round(Math.min(Math.max(width, roomVoiceMinWidth), Math.min(roomVoiceMaxWidth, responsiveMax)));
+}
+
+function setRoomVoiceWidth(width, persist = false) {
+  const nextWidth = clampRoomVoiceWidth(width);
+  appShell.style.setProperty("--room-voice-width", `${nextWidth}px`);
+  roomResizeHandle?.setAttribute("aria-valuenow", String(nextWidth));
+
+  if (persist) {
+    try {
+      window.localStorage?.setItem(roomVoiceWidthStorageKey, String(nextWidth));
+    } catch {
+      // The drag should still work for this visit when storage is unavailable.
+    }
+  }
+
+  return nextWidth;
+}
+
+function syncRoomVoiceWidth() {
+  if (!appShell.classList.contains("in-room")) {
+    return;
+  }
+
+  setRoomVoiceWidth(storedRoomVoiceWidth());
+}
+
 function setMeterLevel(bar, meter, level) {
   bar.style.width = `${level}%`;
   meter.setAttribute("aria-valuenow", String(level));
@@ -227,6 +278,7 @@ function showRoom(roomCode) {
   appShell.classList.add("in-room");
   lobbyPanel.hidden = true;
   roomPanel.hidden = false;
+  syncRoomVoiceWidth();
 }
 
 function websocketUrl() {
@@ -1670,6 +1722,59 @@ window.addEventListener("blur", () => {
   isPushToTalkPressed = false;
   updateMicrophoneTransmission();
 });
+
+roomResizeHandle.addEventListener("pointerdown", (event) => {
+  if (!appShell.classList.contains("in-room")) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const startX = event.clientX;
+  const startWidth = roomPanel.getBoundingClientRect().width;
+
+  appShell.classList.add("is-resizing");
+  document.body.classList.add("room-resizing");
+  roomResizeHandle.setPointerCapture(event.pointerId);
+
+  const handlePointerMove = (moveEvent) => {
+    setRoomVoiceWidth(startWidth + moveEvent.clientX - startX);
+  };
+
+  const handlePointerEnd = (endEvent) => {
+    setRoomVoiceWidth(roomPanel.getBoundingClientRect().width, true);
+    appShell.classList.remove("is-resizing");
+    document.body.classList.remove("room-resizing");
+    roomResizeHandle.releasePointerCapture(endEvent.pointerId);
+    roomResizeHandle.removeEventListener("pointermove", handlePointerMove);
+    roomResizeHandle.removeEventListener("pointerup", handlePointerEnd);
+    roomResizeHandle.removeEventListener("pointercancel", handlePointerEnd);
+  };
+
+  roomResizeHandle.addEventListener("pointermove", handlePointerMove);
+  roomResizeHandle.addEventListener("pointerup", handlePointerEnd);
+  roomResizeHandle.addEventListener("pointercancel", handlePointerEnd);
+});
+
+roomResizeHandle.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const currentWidth = roomPanel.getBoundingClientRect().width || storedRoomVoiceWidth();
+  const nextWidth = {
+    ArrowLeft: currentWidth - 32,
+    ArrowRight: currentWidth + 32,
+    Home: roomVoiceMinWidth,
+    End: roomVoiceMaxWidth
+  }[event.key];
+
+  setRoomVoiceWidth(nextWidth, true);
+});
+
+window.addEventListener("resize", syncRoomVoiceWidth);
 
 refreshRoomsButton.addEventListener("click", refreshOpenRooms);
 
