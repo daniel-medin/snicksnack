@@ -78,57 +78,50 @@
     </section>
 
     <section class="control-panel room-panel" id="roomPanel" aria-label="Rum" hidden>
-      <div class="room-header">
-        <div>
-          <p class="eyebrow">Rum</p>
-          <h2 id="activeRoomTitle">Rum</h2>
-        </div>
-        <div class="room-header-actions">
-          <div class="room-settings">
-            <button id="roomSettingsButton" type="button" class="icon-button" title="Rumsinställningar" aria-label="Rumsinställningar" aria-expanded="false" aria-controls="roomSettingsPanel">⚙</button>
-            <div id="roomSettingsPanel" class="room-settings-panel" hidden>
-              <label for="roomMicrophoneSelect">Mikrofon</label>
-              <div class="inline-row device-row room-device-row">
-                <select id="roomMicrophoneSelect" name="roomMicrophoneSelect"></select>
-                <button id="refreshRoomDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
-              </div>
-
-              <div class="settings-divider"></div>
-
-              <button id="muteToggleButton" type="button" class="secondary settings-toggle" aria-pressed="false">
-                <span>Mikrofon</span>
-                <strong id="muteStateText">På</strong>
-              </button>
-
-              <button id="pushToTalkToggleButton" type="button" class="secondary settings-toggle" aria-pressed="false">
-                <span>Push to talk</span>
-                <strong id="pushToTalkStateText">Av</strong>
-              </button>
-
-              <div class="ptt-bind-row">
-                <button id="bindPushToTalkButton" type="button" class="secondary compact-button">Välj tangent</button>
-                <span id="pushToTalkKeyText">Ingen tangent vald</span>
-              </div>
+        <div class="room-header">
+            <div class="call-avatar" aria-hidden="true">
+                <img src="/assets/snicksnackfavicon.png" alt="">
             </div>
-          </div>
-          <button id="leaveButton" type="button" class="secondary">Lämna</button>
+            <div>
+                <p class="eyebrow">Rum</p>
+                <h2 id="activeRoomTitle">Rum</h2>
+            </div>
+            <div class="room-header-actions">
+                <div class="room-settings">
+                    <button id="roomSettingsButton" type="button" class="icon-button" title="Rumsinställningar" aria-label="Rumsinställningar" aria-expanded="false" aria-controls="roomSettingsPanel">⚙</button>
+                    <div id="roomSettingsPanel" class="room-settings-panel" hidden>
+                        <label for="roomMicrophoneSelect">Mikrofon</label>
+                        <div class="inline-row device-row room-device-row">
+                            <select id="roomMicrophoneSelect" name="roomMicrophoneSelect"></select>
+                            <button id="refreshRoomDevicesButton" type="button" class="icon-button" title="Uppdatera mikrofoner" aria-label="Uppdatera mikrofoner">↻</button>
+                        </div>
+
+                        <div class="settings-divider"></div>
+
+                        <button id="muteToggleButton" type="button" class="secondary settings-toggle" aria-pressed="false">
+                            <span>Mikrofon</span>
+                            <strong id="muteStateText">På</strong>
+                        </button>
+
+                        <button id="pushToTalkToggleButton" type="button" class="secondary settings-toggle" aria-pressed="false">
+                            <span>Push to talk</span>
+                            <strong id="pushToTalkStateText">Av</strong>
+                        </button>
+
+                        <div class="ptt-bind-row">
+                            <button id="bindPushToTalkButton" type="button" class="secondary compact-button">Välj tangent</button>
+                            <span id="pushToTalkKeyText">Ingen tangent vald</span>
+                        </div>
+                    </div>
+                </div>
+                <button id="leaveButton" type="button" class="secondary">Lämna</button>
+            </div>
         </div>
-      </div>
 
       <div class="status-row room-status">
         <span class="status-dot" id="statusDot" aria-hidden="true"></span>
         <p id="statusText" role="status" aria-live="polite">Inte ansluten</p>
       </div>
-
-      <section class="call-card" aria-label="Samtal">
-        <div class="call-avatar" aria-hidden="true">
-          <img src="/assets/snicksnackfavicon.png" alt="">
-        </div>
-        <div>
-          <h3>Direktsamtal</h3>
-          <p>Du är inne i rummet. När en annan deltagare ansluter går ljudet direkt mellan era webbläsare.</p>
-        </div>
-      </section>
 
       <section class="participants-panel" aria-label="Deltagare">
         <div class="section-title-row">
